@@ -41,6 +41,7 @@ export default function PhoneSimulator() {
   const digitTimer = useRef(null);
   const bufferRef = useRef("");
   const modeRef = useRef("onhook");
+  const lastSpoken = useRef(null);
 
   const offHook = mode !== "onhook";
 
@@ -66,20 +67,40 @@ export default function PhoneSimulator() {
     setPlaying(false);
   };
 
-  const speak = useCallback(async (text, opts) => {
+  const speak = useCallback(async (text, opts, onDone) => {
     try {
       setPlaying(true);
       const res = await api.tts(text, opts);
       stopAudio();
       const audio = new Audio(`data:audio/mp3;base64,${res.audio_base64}`);
       audioRef.current = audio;
-      audio.onended = () => setPlaying(false);
+      audio.onended = () => {
+        setPlaying(false);
+        if (onDone) onDone();
+      };
       await audio.play();
     } catch (e) {
       setPlaying(false);
       push("error", "// audio channel unavailable");
     }
   }, [push]);
+
+  // Speak a program/egg line, remember it for replay, then read the options prompt.
+  const deliver = useCallback((text, opts) => {
+    lastSpoken.current = { text, opts };
+    speak(text, opts, () => {
+      speak(
+        "To hear that again, press star. To return to the main menu, dial 0. Or hang up to call again.",
+        { voice: OPERATOR_VOICE }
+      );
+    });
+  }, [speak]);
+
+  const replayLast = useCallback(() => {
+    if (!lastSpoken.current) return;
+    push("system", "\u21ba replaying…");
+    deliver(lastSpoken.current.text, lastSpoken.current.opts);
+  }, [deliver, push]);
 
   const resetLine = useCallback(() => {
     clearTimeout(digitTimer.current);
@@ -120,7 +141,7 @@ export default function PhoneSimulator() {
       if (intro) push("program", intro);
       push("system", "── FORTUNE TELLER: CHOOSE YOUR ORACLE ──");
       ps.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
-      push("system", "Dial 1-4 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
+      push("system", "Dial 1-9 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
       speak(oraclePrompt(ps), { voice: ORACLE_VOICE });
     } catch (e) {
       push("error", "// personas unavailable");
@@ -141,16 +162,18 @@ export default function PhoneSimulator() {
     push("system", "…the connection hums with energy…");
     try {
       const res = await api.fortune(personaId, question);
+      const signOff = res.sign_off ? ` ${res.sign_off}` : "";
       push("program", `${res.persona_name}: ${res.text}`);
+      if (res.sign_off) push("program", res.sign_off);
       setModeSafe("result");
-      push("system", "Dial 0 to return to the main menu, or hang up.");
-      speak(res.text, { persona: personaId });
+      push("system", "To hear your fortune again, press \u2731. Dial 0 for the main menu, or hang up.");
+      deliver(`${res.text}${signOff}`, { persona: personaId });
     } catch (e) {
       setModeSafe("result");
       push("error", "// the oracle went silent (engine error)");
-      push("system", "Dial 0 to return to the main menu, or hang up.");
+      push("system", "To try again, press \u2731. Dial 0 for the main menu, or hang up.");
     }
-  }, [question, push, speak, setModeSafe]);
+  }, [question, push, deliver, setModeSafe]);
 
   const processDial = useCallback(async (digits) => {
     if (!digits) return;
@@ -178,31 +201,31 @@ export default function PhoneSimulator() {
         push("program", `Connecting to ${res.name}...`);
         push("system", "── CHOOSE YOUR ORACLE ──");
         (res.personas || []).forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
-        push("system", "Dial 1-4 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
+        push("system", "Dial 1-9 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
         speak(oraclePrompt(res.personas || []), { voice: ORACLE_VOICE });
       } else if (res.type === "secret") {
         setModeSafe("secret");
         push("program", `\u260e ${res.title}`);
         push("program", res.response_text);
-        push("system", "Dial 0 to return to the main menu, or hang up.");
-        speak(res.response_text, { voice: res.voice });
+        push("system", "To hear that again, press \u2731. Dial 0 for the main menu, or hang up.");
+        deliver(res.response_text, { voice: res.voice });
       } else if (res.type === "voicemail" || res.type === "coming_soon") {
         setModeSafe("message");
         push("program", res.message);
-        push("system", "Dial 0 to return to the main menu, or hang up.");
-        speak(res.message + " Dial 0 to return to the main menu.", { voice: OPERATOR_VOICE });
+        push("system", "To hear that again, press \u2731. Dial 0 for the main menu, or hang up.");
+        deliver(res.message, { voice: OPERATOR_VOICE });
       } else {
         setModeSafe("message");
         push("error", res.message || "// not in service");
-        push("system", "Dial 0 to return to the main menu, or hang up.");
-        speak((res.message || "We're sorry. The number you have dialed is not in service.") + " Dial 0 to return to the main menu.", { voice: OPERATOR_VOICE });
+        push("system", "To hear that again, press \u2731. Dial 0 for the main menu, or hang up.");
+        deliver(res.message || "We're sorry. The number you have dialed is not in service.", { voice: OPERATOR_VOICE });
       }
     } catch (e) {
       setModeSafe("message");
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, push, speak, setModeSafe]);
+  }, [personas, generateFortune, push, speak, deliver, setModeSafe]);
 
   const lift = useCallback(() => {
     if (incoming) {
@@ -237,7 +260,8 @@ export default function PhoneSimulator() {
         // straight to voicemail from the menu
         processDial("*");
       } else if (["result", "secret", "message"].includes(modeRef.current)) {
-        backToMenu();
+        // press star to hear the message/fortune again
+        replayLast();
       }
       return;
     }
@@ -259,7 +283,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, setBuf]);
 
   const simulateScheduledCall = useCallback(() => {
     if (offHook || incoming) return;

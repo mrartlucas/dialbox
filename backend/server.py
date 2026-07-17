@@ -272,7 +272,7 @@ async def fortune(payload: FortuneRequest):
 
     text = str(text).strip()
     return {"persona": persona["id"], "persona_name": persona["name"],
-            "voice": persona["voice"], "text": text}
+            "voice": persona["voice"], "text": text, "sign_off": persona.get("sign_off", "")}
 
 
 @api_router.post("/tts")
