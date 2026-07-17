@@ -50,3 +50,11 @@ dormant. Full multi-phase roadmap in the original brief.
 ## Notes
 - Seed uses `$setOnInsert`; editing `seed_data.py` won't update already-seeded docs (drop collections to re-seed).
 - No dedup index on secret `code` (allows duplicates) — add unique index if needed.
+
+## Update 2026-07-17 (Oracle Manager + Easter-egg authoring)
+- Fortune Teller renamed -> **Fortune Caller**. 9 oracles now **DB-driven** (Mongo `personas`): Zartan Speaks, The Great and Powerful AZ, Madame Ruby, Master Sum Dum Goy (punchy cookie), Miss Calypso, Zelda, Count Clairvoyant, The Sphinx (chiasmus riddles), Nyx. TTS pronunciation fixed (Zartan->Zar-tan, AZ->Oz).
+- **Oracle Manager** (config tab): CRUD + clone/toggle/reorder; fields incl type (resident/traveling) + season; phone shows residents always, travelers only in active season (month-based).
+- **Easter eggs**: branch sub-menus (411,900) + story clues (007,1955,101) + 555-xxxx wildcard; branches & clues now editable in config panel.
+- **Barge-in**: keypress cuts current audio. In-call: * replay, # another oracle, 0 main menu.
+- Tested: backend 35/35, frontend 100%, no issues.
+- Known notes (non-blocking): personas seeded via $setOnInsert (seed_data content edits won't overwrite existing docs); no dup-check on secret `code`; season filter uses UTC month.
