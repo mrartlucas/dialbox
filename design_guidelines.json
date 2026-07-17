@@ -1,0 +1,132 @@
+{
+  "theme_mode": "dark",
+  "typography": {
+    "headings": {
+      "font_family": "IBM Plex Mono, monospace",
+      "weights": ["400", "600", "700"],
+      "usage": "Used for CRT console text, section headers in the config panel, and phone keypad numbers to give a technical/analog vibe."
+    },
+    "body": {
+      "font_family": "IBM Plex Sans, sans-serif",
+      "weights": ["400", "500"],
+      "usage": "Used for configuration settings, long-form text, and secondary UI elements for optimal readability."
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl tracking-tighter",
+      "h2": "text-2xl sm:text-3xl tracking-tight",
+      "h3": "text-xl sm:text-2xl",
+      "body": "text-base leading-relaxed",
+      "labels": "text-xs tracking-[0.2em] uppercase font-mono"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#0a0a0a",
+      "surface_dark": "#171717",
+      "primary_crt_green": "#39ff14",
+      "primary_amber": "#ffb000",
+      "bakelite_black": "#121212",
+      "vintage_red": "#e63946",
+      "muted_text": "#888888",
+      "border_color": "#262626"
+    },
+    "strategy": {
+      "simulator": "Deep bakelite black casing, glowing CRT green/amber for screens and indicator lights. High contrast.",
+      "dashboard": "High-contrast Swiss brutalist/terminal approach. Dark surface with stark borders and monospace green accents."
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": [
+      {
+        "name": "Retro Terminal (CRT)",
+        "description": "Deep black background, glowing green text, with a faint scanline repeating-linear-gradient overlay."
+      },
+      {
+        "name": "Tactile Buttons (Keypad/Toggles)",
+        "description": "Hard shadow offsets (e.g., 2-4px solid border bottom/right). When pressed, translate down and remove shadow to simulate mechanical switches."
+      }
+    ],
+    "borders_and_shadows": {
+      "radius": "rounded-none sm:rounded-sm",
+      "borders": "border-2 border-border/40",
+      "shadows": "shadow-[4px_4px_0px_0px_rgba(57,255,20,0.2)] for active neon elements, standard offset shadow for buttons"
+    },
+    "textures": "Use scanlines for the CRT transcript and subtle grain on the main app background to remove digital flatness."
+  },
+  "grids_and_layouts": {
+    "app_structure": "Split screen or side-by-side. Left/Center: The interactive Bakelite Phone Simulator. Right: The Config Panel.",
+    "simulator": "Absolute or heavily constrained relative layout mimicking physical hardware dimensions. Asymmetrical positioning of phone elements (handset, dial pad).",
+    "config_dashboard": "The 'Bento' High Density Grid. Dense, functional, tight gaps (gap-4). Every pixel utilized for switches and inputs.",
+    "spacing": "Generous spacing around the phone simulator to let it breathe (p-12). Dense padding inside config cards (p-4 to p-6). Container with border MUST have padding."
+  },
+  "components": [
+    {
+      "name": "Phone Keypad (DTMF)",
+      "path": "frontend/src/components/ui/keypad.jsx",
+      "rules": "Must feel mechanical. Use hard borders, sharp corners, and deep press animations. Include visual feedback when 'pressed'."
+    },
+    {
+      "name": "CRT Transcript Console",
+      "path": "frontend/src/components/ui/crt-console.jsx",
+      "rules": "Dark background, monospace green text, subtle text-shadow for glow. Overflow scroll with hidden scrollbar. Must include pseudo-element scanlines."
+    },
+    {
+      "name": "Config Panel Controls",
+      "path": "frontend/src/components/ui/switch.jsx, frontend/src/components/ui/input.jsx",
+      "rules": "Use Shadcn logic but heavily override styles to look like analog toggle switches and physical sliders. Hard contrasting colors. No transparent backgrounds over content."
+    }
+  ],
+  "motion_and_interactions": {
+    "buttons": "Active state: `active:translate-y-[2px] active:shadow-none` for mechanical click feel.",
+    "crt_screen": "Subtle flicker animation on power-up or program switch. Slower load times artificially to mimic retro tech.",
+    "indicators": "Message/Ringer light pulses using opacity keyframes and blur variations (`animate-pulse` mixed with drop-shadow)."
+  },
+  "accessibility": {
+    "contrast": "Ensure glowing text meets 4.5:1 ratio against black backgrounds. Use text-shadow to increase legibility if needed.",
+    "motion": "Respect `prefers-reduced-motion` for CRT flickers and overlays.",
+    "data_testid": "ALL interactive components MUST have `data-testid` attributes (e.g., `keypad-button-1`, `config-toggle-fortune`)."
+  },
+  "media_and_assets": {
+    "icons": {
+      "library": "lucide-react",
+      "style": "Technical, unrounded edges if possible. Keep them minimal."
+    },
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1525598912003-663126343e1f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzV8MHwxfHNlYXJjaHwxfHx2aW50YWdlJTIwcm90YXJ5JTIwcGhvbmUlMjBiYWtlbGl0ZXxlbnwwfHx8fDE3ODQyNTYxMjZ8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Black rotary phone for aesthetic inspiration or hero background overlay in the config welcome screen.",
+        "category": "Hero / Inspiration"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1609910270372-3af11707f65b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwyfHxjcnQlMjBtb25pdG9yJTIwZ3JlZW4lMjBwaG9zcGhvciUyMHRleHR1cmV8ZW58MHx8fHwxNzg0MjU2MTI2fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Green phosphor texture. To be blended (`mix-blend-overlay` with low opacity) over the CRT transcript area to give it an authentic screen feel.",
+        "category": "Texture Overlay"
+      }
+    ]
+  },
+  "libraries": {
+    "3d": "Not required. A highly polished 2D UI with tactile shadow offsets and CSS animations will sell the retro hardware aesthetic better than heavy 3D. Keep it performant.",
+    "animations": "framer-motion for tactile hardware switch states and CRT boot sequences."
+  },
+  "instructions_to_main_agent": [
+    "Install required dependencies: `yarn add framer-motion lucide-react`.",
+    "Set up Tailwind variables for dark mode strictly. Use `#0a0a0a` for the main background.",
+    "Create the main layout as a split view: Simulator on the left/center, Config panel on the right (or as an expandable drawer).",
+    "For the Phone Simulator: Build it entirely with pure HTML/Tailwind (.jsx) to create the overlapping, asymmetrical 'hardware' look. Do not use generic Shadcn cards for the phone body.",
+    "For the Config Dashboard: Heavy use of customized Shadcn components (forms, inputs, select) but strip Vercel-like gloss. Apply 'Tactile' retro styling (hard borders, monospace labels).",
+    "Implement the CRT Transcript screen with `overflow-y-auto`, a green text shadow, and a subtle CSS scanline overlay.",
+    "NEVER use generic `Inter` or `sans` for headings. Ensure `IBM Plex Mono` or `Source Code Pro` is fetched from Google Fonts and injected.",
+    "Ensure the header has a solid or heavily blurred background, NEVER fully transparent."
+  ],
+  "universal_guidelines": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts. Create depth through layered design elements with z-index hierarchy.",
+    "You MUST NOT apply universal transition (e.g., `transition: all`). Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container, i.e. do not add `.App { text-align: center; }`.",
+    "Every interaction needs micro-animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Subtle grain textures, noise overlays, custom cursors, and loading animations separate good from extraordinary.",
+    "All interactive elements MUST include a `data-testid` attribute (e.g. `data-testid='handset-toggle'`)."
+  ]
+}
