@@ -16,7 +16,9 @@ const STATUS = {
   incoming: "RINGING",
 };
 
-export default function PhoneSimulator({ onDataChanged }) {
+const INTER_DIGIT_MS = 1300;
+
+export default function PhoneSimulator() {
   const [mode, setMode] = useState("onhook");
   const [buffer, setBuffer] = useState("");
   const [lines, setLines] = useState([]);
@@ -26,10 +28,24 @@ export default function PhoneSimulator({ onDataChanged }) {
   const [messageLight, setMessageLight] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [incoming, setIncoming] = useState(false);
+
   const audioRef = useRef(null);
   const ringTimer = useRef(null);
+  const digitTimer = useRef(null);
+  const bufferRef = useRef("");
+  const modeRef = useRef("onhook");
 
   const offHook = mode !== "onhook";
+
+  const setBuf = useCallback((v) => {
+    bufferRef.current = v;
+    setBuffer(v);
+  }, []);
+
+  const setModeSafe = useCallback((m) => {
+    modeRef.current = m;
+    setMode(m);
+  }, []);
 
   const push = useCallback((role, text) => {
     setLines((prev) => [...prev, { role, text }]);
@@ -59,13 +75,14 @@ export default function PhoneSimulator({ onDataChanged }) {
   }, [push]);
 
   const resetLine = useCallback(() => {
+    clearTimeout(digitTimer.current);
     stopAudio();
-    setMode("onhook");
-    setBuffer("");
+    setModeSafe("onhook");
+    setBuf("");
     setProgram(null);
     setQuestion("");
     setLines([]);
-  }, []);
+  }, [setBuf, setModeSafe]);
 
   const openMenu = useCallback(async () => {
     playDialTone();
@@ -76,30 +93,11 @@ export default function PhoneSimulator({ onDataChanged }) {
       push("system", "── DIAL MENU ──");
       menu.items.forEach((it) => push("line", `  ${it.key}  ${it.name}`));
       push("line", `  ${menu.voicemail_key}  Voicemail`);
-      push("system", "Dial a number, then press the green CALL key. (Try a secret number too.)");
+      push("system", "Dial a number to select. For a secret number, dial it then press \u2731 to confirm.");
     } catch (e) {
       push("error", "// could not reach the exchange");
     }
   }, [push]);
-
-  const lift = useCallback(() => {
-    if (incoming) {
-      // answering an incoming scheduled call
-      clearTimeout(ringTimer.current);
-      setIncoming(false);
-      setMessageLight(false);
-      setMode("fortune_persona");
-      setBuffer("");
-      setLines([]);
-      push("program", "The Fortune Teller is calling YOU. The line was scheduled to ring.");
-      loadFortunePersonas("The Fortune Teller reaches through the receiver...");
-      return;
-    }
-    setMode("dialtone");
-    setBuffer("");
-    setLines([]);
-    openMenu();
-  }, [incoming, openMenu, push]);
 
   const loadFortunePersonas = useCallback(async (intro) => {
     try {
@@ -109,34 +107,43 @@ export default function PhoneSimulator({ onDataChanged }) {
       if (intro) push("program", intro);
       push("system", "── FORTUNE TELLER: CHOOSE YOUR ORACLE ──");
       ps.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
-      push("system", "Dial 1-4 + CALL. Optionally whisper a question below first.");
+      push("system", "Dial 1-4 to choose. (Optionally whisper a question below first.)");
     } catch (e) {
       push("error", "// personas unavailable");
     }
   }, [push]);
 
+  const backToMenu = useCallback(() => {
+    clearTimeout(digitTimer.current);
+    stopAudio();
+    setBuf("");
+    setLines([]);
+    setModeSafe("dialtone");
+    openMenu();
+  }, [openMenu, setBuf, setModeSafe]);
+
   const generateFortune = useCallback(async (personaId) => {
-    setMode("busy");
+    setModeSafe("busy");
     push("system", "…the connection hums with energy…");
     try {
       const res = await api.fortune(personaId, question);
       push("program", `${res.persona_name}: ${res.text}`);
-      setMode("result");
-      push("system", "Press * to return to the menu, or hang up.");
+      setModeSafe("result");
+      push("system", "Press \u2731 to return to the menu, or hang up.");
       speak(res.text, { persona: personaId });
     } catch (e) {
-      setMode("result");
+      setModeSafe("result");
       push("error", "// the oracle went silent (engine error)");
+      push("system", "Press \u2731 to return to the menu, or hang up.");
     }
-  }, [question, push, speak]);
+  }, [question, push, speak, setModeSafe]);
 
-  const submit = useCallback(async () => {
-    const digits = buffer;
+  const processDial = useCallback(async (digits) => {
     if (!digits) return;
+    const curMode = modeRef.current;
 
-    if (mode === "fortune_persona") {
+    if (curMode === "fortune_persona") {
       const idx = parseInt(digits, 10) - 1;
-      setBuffer("");
       if (personas[idx]) {
         push("caller", `dialed ${digits} — ${personas[idx].name}`);
         generateFortune(personas[idx].id);
@@ -146,88 +153,105 @@ export default function PhoneSimulator({ onDataChanged }) {
       return;
     }
 
-    if (mode === "result" || mode === "secret" || mode === "message") {
-      if (digits === "*") {
-        setBuffer("");
-        stopAudio();
-        setMode("dialtone");
-        setLines([]);
-        openMenu();
-        return;
-      }
-    }
-
-    // default: dial routing from the menu
-    setMode("busy");
+    setModeSafe("busy");
     push("caller", `dialed ${digits}`);
-    setBuffer("");
     try {
       const res = await api.dial(digits);
       if (res.type === "program" && res.has_personas) {
-        setMode("fortune_persona");
+        setModeSafe("fortune_persona");
         setPersonas(res.personas || []);
         setProgram(res);
         push("program", `Connecting to ${res.name}...`);
         push("system", "── CHOOSE YOUR ORACLE ──");
         (res.personas || []).forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
-        push("system", "Dial 1-4 + CALL. Optionally whisper a question below first.");
+        push("system", "Dial 1-4 to choose. (Optionally whisper a question below first.)");
       } else if (res.type === "secret") {
-        setMode("secret");
-        push("program", `☎ ${res.title}`);
+        setModeSafe("secret");
+        push("program", `\u260e ${res.title}`);
         push("program", res.response_text);
-        push("system", "Press * for the menu, or hang up.");
+        push("system", "Press \u2731 to return to the menu, or hang up.");
         speak(res.response_text, { voice: res.voice });
-      } else if (res.type === "voicemail") {
-        setMode("message");
+      } else if (res.type === "voicemail" || res.type === "coming_soon") {
+        setModeSafe("message");
         push("program", res.message);
-        push("system", "Press * for the menu, or hang up.");
-      } else if (res.type === "coming_soon") {
-        setMode("message");
-        push("program", res.message);
-        push("system", "Press * for the menu, or hang up.");
+        push("system", "Press \u2731 to return to the menu, or hang up.");
       } else {
-        setMode("message");
+        setModeSafe("message");
         push("error", res.message || "// not in service");
-        push("system", "Press * for the menu, or hang up.");
+        push("system", "Press \u2731 to return to the menu, or hang up.");
       }
     } catch (e) {
-      setMode("message");
+      setModeSafe("message");
       push("error", "// exchange error — try another number");
+      push("system", "Press \u2731 to return to the menu, or hang up.");
     }
-  }, [buffer, mode, personas, generateFortune, openMenu, push, speak]);
+  }, [personas, generateFortune, push, speak, setModeSafe]);
+
+  const lift = useCallback(() => {
+    if (incoming) {
+      clearTimeout(ringTimer.current);
+      setIncoming(false);
+      setMessageLight(false);
+      setModeSafe("fortune_persona");
+      setBuf("");
+      setLines([]);
+      push("program", "The Fortune Teller is calling YOU. The line was scheduled to ring.");
+      loadFortunePersonas();
+      return;
+    }
+    setModeSafe("dialtone");
+    setBuf("");
+    setLines([]);
+    openMenu();
+  }, [incoming, openMenu, push, loadFortunePersonas, setBuf, setModeSafe]);
 
   const onKey = useCallback((d) => {
-    if (!offHook) return;
+    if (!offHook || modeRef.current === "busy") return;
     playTone(d);
-    if (d === "*" && (mode === "result" || mode === "secret" || mode === "message")) {
-      setBuffer("*");
-      setTimeout(() => submit(), 0);
+    clearTimeout(digitTimer.current);
+
+    if (d === "*") {
+      const b = bufferRef.current;
+      if (b) {
+        // confirm a longer dialed number
+        setBuf("");
+        processDial(b);
+      } else if (modeRef.current === "dialtone") {
+        // straight to voicemail from the menu
+        processDial("*");
+      } else if (["result", "secret", "message"].includes(modeRef.current)) {
+        backToMenu();
+      }
       return;
     }
-    if (d === "#") {
-      submit();
-      return;
-    }
-    setBuffer((b) => (b.length < 12 ? b + d : b));
-  }, [offHook, mode, submit]);
+
+    // append digit; single menu selections auto-dial after a short pause
+    const nb = bufferRef.current.length < 14 ? bufferRef.current + d : bufferRef.current;
+    setBuf(nb);
+    digitTimer.current = setTimeout(() => {
+      setBuf("");
+      processDial(nb);
+    }, INTER_DIGIT_MS);
+  }, [offHook, processDial, backToMenu, setBuf]);
 
   const simulateScheduledCall = useCallback(() => {
     if (offHook || incoming) return;
     setIncoming(true);
     setMessageLight(false);
-    // If not answered in 9s -> voicemail + message light
     ringTimer.current = setTimeout(() => {
       setIncoming(false);
       setMessageLight(true);
-      setMode("onhook");
+      setModeSafe("onhook");
     }, 9000);
-  }, [offHook, incoming]);
+  }, [offHook, incoming, setModeSafe]);
 
-  useEffect(() => () => clearTimeout(ringTimer.current), []);
+  useEffect(() => () => {
+    clearTimeout(ringTimer.current);
+    clearTimeout(digitTimer.current);
+  }, []);
 
   return (
     <div className="relative">
-      {/* Phone body */}
       <div className="relative rounded-md border-2 border-neutral-800 bg-gradient-to-b from-neutral-900 to-black p-6 shadow-[0_20px_60px_rgba(0,0,0,0.6)]">
         {/* Handset bar */}
         <div className="mb-5 flex items-center justify-between gap-4">
@@ -252,7 +276,6 @@ export default function PhoneSimulator({ onDataChanged }) {
               </p>
             </div>
           </div>
-          {/* Indicator lights */}
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-center gap-1" data-testid="ringer-indicator">
               <Bell className={`h-4 w-4 ${incoming ? "text-[#ffb000] animate-pulse" : "text-neutral-700"}`} />
@@ -302,13 +325,18 @@ export default function PhoneSimulator({ onDataChanged }) {
         {/* Keypad */}
         <Keypad onPress={onKey} disabled={!offHook || mode === "busy"} />
 
-        {/* Call control bar */}
-        <div className="mt-5 grid grid-cols-3 gap-3">
+        {/* Hint */}
+        <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-600">
+          {offHook ? "dial a number · press \u2731 to confirm a longer number" : "lift the handset to open the line"}
+        </p>
+
+        {/* Hook control */}
+        <div className="mt-3">
           {!offHook ? (
             <button
               data-testid="lift-handset-btn"
               onClick={lift}
-              className={`tactile col-span-2 flex items-center justify-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 py-4 font-mono text-sm font-bold uppercase tracking-widest crt-glow hover:bg-[#39ff14]/25 ${
+              className={`tactile flex w-full items-center justify-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 py-4 font-mono text-sm font-bold uppercase tracking-widest crt-glow hover:bg-[#39ff14]/25 ${
                 incoming ? "ringing" : ""
               }`}
             >
@@ -316,22 +344,13 @@ export default function PhoneSimulator({ onDataChanged }) {
             </button>
           ) : (
             <button
-              data-testid="call-btn"
-              onClick={submit}
-              disabled={mode === "busy"}
-              className="tactile col-span-2 flex items-center justify-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 py-4 font-mono text-sm font-bold uppercase tracking-widest crt-glow hover:bg-[#39ff14]/25 disabled:opacity-40"
+              data-testid="hangup-btn"
+              onClick={resetLine}
+              className="tactile flex w-full items-center justify-center gap-2 rounded-sm border-2 border-red-600 bg-red-600/15 py-4 font-mono text-sm font-bold uppercase tracking-widest text-red-400 hover:bg-red-600/25"
             >
-              <PhoneCall className="h-5 w-5" /> Call
+              <PhoneOff className="h-5 w-5" /> Hang Up
             </button>
           )}
-          <button
-            data-testid="hangup-btn"
-            onClick={resetLine}
-            disabled={!offHook}
-            className="tactile flex items-center justify-center gap-2 rounded-sm border-2 border-red-600 bg-red-600/15 py-4 font-mono text-sm font-bold uppercase tracking-widest text-red-400 hover:bg-red-600/25 disabled:opacity-30"
-          >
-            <PhoneOff className="h-5 w-5" /> Hang Up
-          </button>
         </div>
 
         {/* Scheduled-call simulator */}
