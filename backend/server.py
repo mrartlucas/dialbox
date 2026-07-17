@@ -51,6 +51,8 @@ class SecretCode(BaseModel):
     response_text: str
     voice: str = "onyx"
     enabled: bool = True
+    branches: Optional[dict] = None
+    clue: Optional[str] = None
 
 
 class SecretCodeUpdate(BaseModel):
@@ -59,6 +61,8 @@ class SecretCodeUpdate(BaseModel):
     response_text: Optional[str] = None
     voice: Optional[str] = None
     enabled: Optional[bool] = None
+    branches: Optional[dict] = None
+    clue: Optional[str] = None
 
 
 class Schedule(BaseModel):
@@ -101,9 +105,15 @@ async def seed():
     for prog in PROGRAMS:
         await db.programs.update_one({"slug": prog["slug"]}, {"$setOnInsert": prog}, upsert=True)
     for code in SECRET_CODES:
+        content = {"title": code["title"], "response_text": code["response_text"],
+                   "voice": code["voice"]}
+        content["branches"] = code.get("branches")
+        content["clue"] = code.get("clue")
         await db.secret_codes.update_one(
             {"code": code["code"]},
-            {"$setOnInsert": {**code, "id": str(uuid.uuid4())}},
+            {"$set": content,
+             "$setOnInsert": {"id": str(uuid.uuid4()), "code": code["code"],
+                              "enabled": code.get("enabled", True)}},
             upsert=True,
         )
     logger.info("Seed complete: programs & secret codes ensured.")
@@ -244,7 +254,20 @@ async def dial(payload: DialRequest):
     secret = await db.secret_codes.find_one({"code": digits, "enabled": True}, {"_id": 0})
     if secret:
         return {"type": "secret", "code": secret["code"], "title": secret["title"],
-                "response_text": secret["response_text"], "voice": secret["voice"]}
+                "response_text": secret["response_text"], "voice": secret["voice"],
+                "branches": secret.get("branches"), "clue": secret.get("clue")}
+
+    # 555 wildcard exchange (movie-style fictional numbers)
+    if digits.startswith("555") and len(digits) >= 4:
+        pretty = "-".join([digits[:3], digits[3:]]) if len(digits) > 3 else digits
+        return {"type": "secret", "code": digits, "title": "The 555 Exchange",
+                "response_text": (
+                    f"You've dialed {pretty}. In the movies, every phone number starts with "
+                    "five-five-five so no real person ever gets a call by accident. You've reached "
+                    "the fictional exchange, where no one is home but every story is possible. "
+                    "*a soft, cinematic dial tone hums in the distance*"
+                ),
+                "voice": "nova", "branches": None, "clue": None}
 
     return {"type": "invalid", "message": "We're sorry. The number you have dialed is not in service. *click*"}
 

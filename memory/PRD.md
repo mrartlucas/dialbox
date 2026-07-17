@@ -30,10 +30,8 @@ dormant. Full multi-phase roadmap in the original brief.
 ## Implemented (2026-07-17)
 - ✅ Retro phone simulator: lift/hang-up handset, 12-key DTMF keypad w/ tones, CRT transcript, dialed buffer, ringer + message-light indicators, "simulate scheduled call" (rings you → voicemail if unanswered in 9s).
 - ✅ **Audio-first UX**: greeting, dial menu, oracle prompt, fortunes, secret eggs, and operator messages are all spoken via OpenAI TTS. CRT transcript is a dev-only read-out.
-- ✅ **No Call button** — single menu digits auto-dial after a short inter-digit pause; longer/secret numbers confirmed with `*`. `0` returns to main menu from any program/egg (announced).
-- ✅ IVR dial menu on pickup (data-driven from enabled programs) + voicemail `*`.
-- ✅ Fortune Teller: **9 performed oracle personas on keys 1-9** (Zoltan Speaks, The Great and Powerful AZ, Madame Ruby, Master Sum Dum Goy, Miss Calypso, Zelda the All-Knowing, Count Clairvoyant, The Sphinx, Nyx of the Nine Stars), each with a distinct OpenAI TTS voice + in-character sign-off, AI text (gpt-5.2), optional typed question. **Press `*` to hear the fortune again.**
-- ✅ Easter-egg engine: 9 seeded secret numbers (666, 42, 007, 5552368, 411, 1955, 000, 13, 101), spoken responses, fully data-driven + manageable.
+- ✅ **No Call button** — single menu digits auto-dial after a short inter-digit pause; longer/secret numbers confirmed with `*`. `0` returns to main menu from any program/egg (announced). In Fortune: `*` = hear fortune again, `#` = speak with another oracle.
+- ✅ Easter-egg engine: **15 secret numbers** (666, 42, 007, 5552368, 411, 900, 789, 88, 321, 1955, 2015, 000, 13, 101, 1313) with upgraded performed scripts; **branch menus** (411 & 900 have sub-options via keypad), **story clues** cross-linking numbers (007→Ghostbusters, 1955→2015, 101→1313), and a **555-xxxx wildcard exchange**. Fully data-driven + manageable in config.
 - ✅ Config panel: program on/off toggles + menu-key builder + live IVR preview; secret-number manager (add/toggle/delete + voice); schedule editor (windows/frequency, CRUD).
 - ✅ Tested: backend 22/22 pytest, frontend 100%, no blocking issues.
 - ✅ Hardware shopping list delivered (`/app/HARDWARE_SHOPPING_LIST.md`).

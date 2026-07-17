@@ -42,6 +42,7 @@ export default function PhoneSimulator() {
   const bufferRef = useRef("");
   const modeRef = useRef("onhook");
   const lastSpoken = useRef(null);
+  const currentEgg = useRef(null);
 
   const offHook = mode !== "onhook";
 
@@ -86,11 +87,12 @@ export default function PhoneSimulator() {
   }, [push]);
 
   // Speak a program/egg line, remember it for replay, then read the options prompt.
-  const deliver = useCallback((text, opts) => {
-    lastSpoken.current = { text, opts };
+  const deliver = useCallback((text, opts, optionsText) => {
+    lastSpoken.current = { text, opts, optionsText };
     speak(text, opts, () => {
       speak(
-        "To hear that again, press star. To return to the main menu, dial 0. Or hang up to call again.",
+        optionsText ||
+          "To hear that again, press star. To return to the main menu, dial 0. Or hang up to call again.",
         { voice: OPERATOR_VOICE }
       );
     });
@@ -99,7 +101,7 @@ export default function PhoneSimulator() {
   const replayLast = useCallback(() => {
     if (!lastSpoken.current) return;
     push("system", "\u21ba replaying…");
-    deliver(lastSpoken.current.text, lastSpoken.current.opts);
+    deliver(lastSpoken.current.text, lastSpoken.current.opts, lastSpoken.current.optionsText);
   }, [deliver, push]);
 
   const resetLine = useCallback(() => {
@@ -166,8 +168,12 @@ export default function PhoneSimulator() {
       push("program", `${res.persona_name}: ${res.text}`);
       if (res.sign_off) push("program", res.sign_off);
       setModeSafe("result");
-      push("system", "To hear your fortune again, press \u2731. Dial 0 for the main menu, or hang up.");
-      deliver(`${res.text}${signOff}`, { persona: personaId });
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(
+        `${res.text}${signOff}`,
+        { persona: personaId },
+        "To hear your fortune again, press star. To speak with another oracle, press pound. To return to the main menu, dial 0. Or hang up to call again."
+      );
     } catch (e) {
       setModeSafe("result");
       push("error", "// the oracle went silent (engine error)");
@@ -205,10 +211,21 @@ export default function PhoneSimulator() {
         speak(oraclePrompt(res.personas || []), { voice: ORACLE_VOICE });
       } else if (res.type === "secret") {
         setModeSafe("secret");
+        currentEgg.current = res;
         push("program", `\u260e ${res.title}`);
         push("program", res.response_text);
-        push("system", "To hear that again, press \u2731. Dial 0 for the main menu, or hang up.");
-        deliver(res.response_text, { voice: res.voice });
+        if (res.clue) push("system", `\u203b clue: ${res.clue}`);
+        const hasBranches = res.branches && Object.keys(res.branches).length > 0;
+        push(
+          "system",
+          (hasBranches ? "Dial a listed option · " : "") +
+            "press \u2731 to hear it again · 0 for the main menu · or hang up."
+        );
+        const spoken = res.response_text + (res.clue ? ` ${res.clue}` : "");
+        const opts = hasBranches
+          ? "Dial one of the options you heard. To hear that again, press star. To return to the main menu, dial 0. Or hang up."
+          : undefined;
+        deliver(spoken, { voice: res.voice }, opts);
       } else if (res.type === "voicemail" || res.type === "coming_soon") {
         setModeSafe("message");
         push("program", res.message);
@@ -245,45 +262,74 @@ export default function PhoneSimulator() {
     openMenu();
   }, [incoming, openMenu, push, loadFortunePersonas, setBuf, setModeSafe]);
 
+  const chooseAnotherOracle = useCallback(() => {
+    clearTimeout(digitTimer.current);
+    stopAudio();
+    setBuf("");
+    setModeSafe("fortune_persona");
+    push("system", "── CHOOSE ANOTHER ORACLE ──");
+    personas.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
+    push("system", "Dial 1-9 to choose, or 0 to return to the main menu.");
+    speak(oraclePrompt(personas), { voice: ORACLE_VOICE });
+  }, [personas, push, speak, setBuf, setModeSafe]);
+
+  const playBranch = useCallback((d) => {
+    const egg = currentEgg.current;
+    const branch = egg && egg.branches ? egg.branches[d] : null;
+    if (!branch) return;
+    push("caller", `dialed ${d}`);
+    push("program", branch.text);
+    push("system", "Press \u2731 to hear it again · 0 for the main menu · or hang up.");
+    deliver(branch.text, { voice: branch.voice || egg.voice });
+  }, [push, deliver]);
+
   const onKey = useCallback((d) => {
     if (!offHook || modeRef.current === "busy") return;
     playTone(d);
     clearTimeout(digitTimer.current);
+    const m = modeRef.current;
+    const inCall = m === "result" || m === "secret" || m === "message";
 
     if (d === "*") {
       const b = bufferRef.current;
       if (b) {
-        // confirm a longer dialed number
         setBuf("");
-        processDial(b);
-      } else if (modeRef.current === "dialtone") {
-        // straight to voicemail from the menu
-        processDial("*");
-      } else if (["result", "secret", "message"].includes(modeRef.current)) {
-        // press star to hear the message/fortune again
-        replayLast();
+        processDial(b); // confirm a longer dialed number
+      } else if (m === "dialtone") {
+        processDial("*"); // straight to voicemail
+      } else if (inCall) {
+        replayLast(); // hear it again
       }
       return;
     }
 
-    // 0 returns to the main menu from inside a program / egg (when not mid-dial)
-    if (
-      d === "0" &&
-      !bufferRef.current &&
-      ["result", "secret", "message", "fortune_persona"].includes(modeRef.current)
-    ) {
+    if (d === "#") {
+      // speak with another oracle (only meaningful after a fortune)
+      if (m === "result") chooseAnotherOracle();
+      return;
+    }
+
+    if (d === "0" && !bufferRef.current && (inCall || m === "fortune_persona")) {
       backToMenu();
       return;
     }
 
-    // append digit; single menu selections auto-dial after a short pause
+    if (inCall) {
+      // while a message/fortune is playing, digits only pick egg sub-menu options
+      if (m === "secret" && currentEgg.current && currentEgg.current.branches) {
+        playBranch(d);
+      }
+      return;
+    }
+
+    // dialtone or oracle-select: accumulate digits; single selections auto-dial after a pause
     const nb = bufferRef.current.length < 14 ? bufferRef.current + d : bufferRef.current;
     setBuf(nb);
     digitTimer.current = setTimeout(() => {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, setBuf]);
 
   const simulateScheduledCall = useCallback(() => {
     if (offHook || incoming) return;
