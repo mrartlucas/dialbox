@@ -22,7 +22,8 @@ const ORACLE_VOICE = "shimmer"; // spoken Fortune Teller intro
 
 const oraclePrompt = (ps) =>
   "Welcome to the Fortune Teller. Choose your oracle. " +
-  ps.map((p, i) => `For ${p.name}, dial ${i + 1}. `).join("");
+  ps.map((p, i) => `For ${p.name}, dial ${i + 1}. `).join("") +
+  "Or dial 0 to return to the main menu.";
 
 export default function PhoneSimulator() {
   const [mode, setMode] = useState("onhook");
@@ -100,10 +101,11 @@ export default function PhoneSimulator() {
       menu.items.forEach((it) => push("line", `  ${it.key}  ${it.name}`));
       push("line", `  ${menu.voicemail_key}  Voicemail`);
       push("system", "Dial a number to select. For a secret number, dial it then press \u2731 to confirm.");
+      push("system", "Dial 0 at any time to return to this menu.");
       const spoken =
         `${menu.greeting} ` +
         menu.items.map((it) => `For ${it.name}, dial ${it.key}. `).join("") +
-        "For voicemail, press star.";
+        "For voicemail, press star. You can dial 0 at any time to return to this menu.";
       speak(spoken, { voice: OPERATOR_VOICE });
     } catch (e) {
       push("error", "// could not reach the exchange");
@@ -118,7 +120,7 @@ export default function PhoneSimulator() {
       if (intro) push("program", intro);
       push("system", "── FORTUNE TELLER: CHOOSE YOUR ORACLE ──");
       ps.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
-      push("system", "Dial 1-4 to choose. (Optionally whisper a question below first.)");
+      push("system", "Dial 1-4 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
       speak(oraclePrompt(ps), { voice: ORACLE_VOICE });
     } catch (e) {
       push("error", "// personas unavailable");
@@ -141,12 +143,12 @@ export default function PhoneSimulator() {
       const res = await api.fortune(personaId, question);
       push("program", `${res.persona_name}: ${res.text}`);
       setModeSafe("result");
-      push("system", "Press \u2731 to return to the menu, or hang up.");
+      push("system", "Dial 0 to return to the main menu, or hang up.");
       speak(res.text, { persona: personaId });
     } catch (e) {
       setModeSafe("result");
       push("error", "// the oracle went silent (engine error)");
-      push("system", "Press \u2731 to return to the menu, or hang up.");
+      push("system", "Dial 0 to return to the main menu, or hang up.");
     }
   }, [question, push, speak, setModeSafe]);
 
@@ -176,29 +178,29 @@ export default function PhoneSimulator() {
         push("program", `Connecting to ${res.name}...`);
         push("system", "── CHOOSE YOUR ORACLE ──");
         (res.personas || []).forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
-        push("system", "Dial 1-4 to choose. (Optionally whisper a question below first.)");
+        push("system", "Dial 1-4 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
         speak(oraclePrompt(res.personas || []), { voice: ORACLE_VOICE });
       } else if (res.type === "secret") {
         setModeSafe("secret");
         push("program", `\u260e ${res.title}`);
         push("program", res.response_text);
-        push("system", "Press \u2731 to return to the menu, or hang up.");
+        push("system", "Dial 0 to return to the main menu, or hang up.");
         speak(res.response_text, { voice: res.voice });
       } else if (res.type === "voicemail" || res.type === "coming_soon") {
         setModeSafe("message");
         push("program", res.message);
-        push("system", "Press \u2731 to return to the menu, or hang up.");
-        speak(res.message, { voice: OPERATOR_VOICE });
+        push("system", "Dial 0 to return to the main menu, or hang up.");
+        speak(res.message + " Dial 0 to return to the main menu.", { voice: OPERATOR_VOICE });
       } else {
         setModeSafe("message");
         push("error", res.message || "// not in service");
-        push("system", "Press \u2731 to return to the menu, or hang up.");
-        speak(res.message || "We're sorry. The number you have dialed is not in service.", { voice: OPERATOR_VOICE });
+        push("system", "Dial 0 to return to the main menu, or hang up.");
+        speak((res.message || "We're sorry. The number you have dialed is not in service.") + " Dial 0 to return to the main menu.", { voice: OPERATOR_VOICE });
       }
     } catch (e) {
       setModeSafe("message");
       push("error", "// exchange error — try another number");
-      push("system", "Press \u2731 to return to the menu, or hang up.");
+      push("system", "Dial 0 to return to the main menu, or hang up.");
     }
   }, [personas, generateFortune, push, speak, setModeSafe]);
 
@@ -237,6 +239,16 @@ export default function PhoneSimulator() {
       } else if (["result", "secret", "message"].includes(modeRef.current)) {
         backToMenu();
       }
+      return;
+    }
+
+    // 0 returns to the main menu from inside a program / egg (when not mid-dial)
+    if (
+      d === "0" &&
+      !bufferRef.current &&
+      ["result", "secret", "message", "fortune_persona"].includes(modeRef.current)
+    ) {
+      backToMenu();
       return;
     }
 
