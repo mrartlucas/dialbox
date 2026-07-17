@@ -1,75 +1,42 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
     margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
+    font-family: 'IBM Plex Sans', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
-code {
-    font-family:
-        source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+code, .font-mono {
+    font-family: 'IBM Plex Mono', monospace;
 }
 
 @layer base {
     :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
-        --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
-        --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
+        --background: 0 0% 4%;
+        --foreground: 0 0% 92%;
+        --card: 0 0% 9%;
+        --card-foreground: 0 0% 92%;
+        --popover: 0 0% 7%;
+        --popover-foreground: 0 0% 92%;
+        --primary: 105 100% 54%;
+        --primary-foreground: 0 0% 4%;
+        --secondary: 0 0% 14%;
+        --secondary-foreground: 0 0% 92%;
+        --muted: 0 0% 14%;
+        --muted-foreground: 0 0% 55%;
+        --accent: 40 100% 50%;
+        --accent-foreground: 0 0% 4%;
+        --destructive: 355 78% 56%;
         --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
-        --radius: 0.5rem;
-    }
-    .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
+        --border: 0 0% 18%;
+        --input: 0 0% 15%;
+        --ring: 105 100% 54%;
+        --radius: 0.25rem;
     }
 }
 
@@ -79,37 +46,79 @@ code {
     }
     body {
         @apply bg-background text-foreground;
+        background-color: #0a0a0a;
+        background-image:
+            radial-gradient(circle at 15% 15%, rgba(57, 255, 20, 0.04), transparent 40%),
+            radial-gradient(circle at 85% 85%, rgba(255, 176, 0, 0.04), transparent 40%);
     }
 }
 
-@layer base {
-    [data-debug-wrapper="true"] {
-        display: contents !important;
-    }
-
-    [data-debug-wrapper="true"] > * {
-        margin-left: inherit;
-        margin-right: inherit;
-        margin-top: inherit;
-        margin-bottom: inherit;
-        padding-left: inherit;
-        padding-right: inherit;
-        padding-top: inherit;
-        padding-bottom: inherit;
-        column-gap: inherit;
-        row-gap: inherit;
-        gap: inherit;
-        border-left-width: inherit;
-        border-right-width: inherit;
-        border-top-width: inherit;
-        border-bottom-width: inherit;
-        border-left-style: inherit;
-        border-right-style: inherit;
-        border-top-style: inherit;
-        border-bottom-style: inherit;
-        border-left-color: inherit;
-        border-right-color: inherit;
-        border-top-color: inherit;
-        border-bottom-color: inherit;
-    }
+/* Grain / noise overlay */
+.grain::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+
+/* CRT scanlines */
+.scanlines {
+    position: relative;
+}
+.scanlines::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0px,
+        rgba(0, 0, 0, 0) 2px,
+        rgba(0, 0, 0, 0.35) 3px,
+        rgba(0, 0, 0, 0.35) 4px
+    );
+    z-index: 2;
+}
+
+.crt-glow {
+    color: #39ff14;
+    text-shadow: 0 0 4px rgba(57, 255, 20, 0.7), 0 0 10px rgba(57, 255, 20, 0.3);
+}
+.amber-glow {
+    color: #ffb000;
+    text-shadow: 0 0 4px rgba(255, 176, 0, 0.7), 0 0 10px rgba(255, 176, 0, 0.3);
+}
+
+/* Mechanical / tactile button */
+.tactile {
+    box-shadow: 0 4px 0 0 rgba(0, 0, 0, 0.6);
+    transition: transform 0.06s ease, box-shadow 0.06s ease, background-color 0.15s ease;
+}
+.tactile:active {
+    transform: translateY(4px);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.6);
+}
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes flicker {
+    0%, 100% { opacity: 1; }
+    92% { opacity: 1; }
+    93% { opacity: 0.6; }
+    94% { opacity: 1; }
+    97% { opacity: 0.8; }
+}
+.flicker { animation: flicker 4s infinite; }
+
+@keyframes ring-shake {
+    0%, 100% { transform: rotate(0deg); }
+    20% { transform: rotate(-4deg); }
+    40% { transform: rotate(4deg); }
+    60% { transform: rotate(-3deg); }
+    80% { transform: rotate(3deg); }
+}
+.ringing { animation: ring-shake 0.4s infinite; }
