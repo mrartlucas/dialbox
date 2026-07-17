@@ -8,12 +8,13 @@ import uuid
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai import OpenAITextToSpeech
 
 from seed_data import PERSONAS, PROGRAMS, SECRET_CODES
+import mindline
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -42,6 +43,8 @@ class ProgramUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     order: Optional[int] = None
+    coming_soon: Optional[bool] = None
+    interaction: Optional[str] = None
 
 
 class SecretCode(BaseModel):
@@ -73,6 +76,7 @@ class Schedule(BaseModel):
     window_end: str = "21:00"
     frequency: str = "daily"  # daily | weekly | seasonal
     enabled: bool = True
+    last_fired: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -338,7 +342,8 @@ async def dial(payload: DialRequest):
             return {"type": "coming_soon", "name": prog["name"],
                     "message": f"{prog['name']} is coming soon on this line."}
         payload_out = {"type": "program", "slug": prog["slug"], "name": prog["name"],
-                       "has_personas": prog.get("has_personas", False)}
+                       "has_personas": prog.get("has_personas", False),
+                       "interaction": prog.get("interaction", "menu")}
         if prog.get("has_personas"):
             docs = await active_personas()
             payload_out["personas"] = [
@@ -413,6 +418,150 @@ async def tts(payload: TTSRequest):
         raise HTTPException(status_code=502, detail=f"TTS engine error: {e}")
 
     return {"audio_base64": audio_b64, "format": "mp3", "voice": voice}
+
+
+class MindlineGreeting(BaseModel):
+    name: Optional[str] = None
+
+
+class MindlineReply(BaseModel):
+    message: str
+
+
+class VoicemailCreate(BaseModel):
+    program_slug: str
+    text: Optional[str] = None
+
+
+VOICEMAIL_TEMPLATES = {
+    "fortune": {"from_name": "The Fortune Caller",
+                "text": "This is the Fortune Caller. The stars lined up with a message for you, but you did not pick up. Your destiny is on hold. Call back when you are ready to know."},
+    "therapy": {"from_name": "Dr. Dialtone",
+                "text": "This is Doctor Dialtone from MindLine. You missed your session. How does that make you feel? Call back when you are ready to talk to a machine."},
+    "_default": {"from_name": "The Line",
+                 "text": "You have a missed call. Someone, or something, tried to reach you. Call back soon."},
+}
+
+
+@api_router.get("/mindline/intro")
+async def mindline_intro():
+    return {"disclaimer": mindline.DISCLAIMER, "name_prompt": mindline.NAME_PROMPT,
+            "voice": mindline.DR_VOICE}
+
+
+@api_router.post("/mindline/greeting")
+async def mindline_greeting(payload: MindlineGreeting):
+    return {"text": mindline.greeting(payload.name), "voice": mindline.DR_VOICE}
+
+
+@api_router.post("/mindline/reply")
+async def mindline_reply(payload: MindlineReply):
+    return {"reply": mindline.respond(payload.message), "voice": mindline.DR_VOICE}
+
+
+@api_router.get("/mindline/signoff")
+async def mindline_signoff():
+    return {"text": mindline.SIGNOFF, "voice": mindline.DR_VOICE}
+
+
+# ----------------------------- Voicemail -----------------------------
+@api_router.get("/voicemails")
+async def list_voicemails():
+    now = now_iso()
+    docs = await db.voicemails.find({"expires_at": {"$gt": now}}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return docs
+
+
+@api_router.post("/voicemails")
+async def create_voicemail(payload: VoicemailCreate):
+    prog = await db.programs.find_one({"slug": payload.program_slug}, {"_id": 0})
+    tpl = VOICEMAIL_TEMPLATES.get(payload.program_slug, VOICEMAIL_TEMPLATES["_default"])
+    created = datetime.now(timezone.utc)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "program_slug": payload.program_slug,
+        "program_name": prog["name"] if prog else tpl["from_name"],
+        "from_name": tpl["from_name"],
+        "text": payload.text or tpl["text"],
+        "created_at": created.isoformat(),
+        "expires_at": (created + timedelta(days=7)).isoformat(),
+        "heard": False,
+    }
+    await db.voicemails.insert_one({**doc})
+    return doc
+
+
+@api_router.patch("/voicemails/{vm_id}")
+async def mark_voicemail(vm_id: str):
+    res = await db.voicemails.update_one({"id": vm_id}, {"$set": {"heard": True}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Voicemail not found")
+    return await db.voicemails.find_one({"id": vm_id}, {"_id": 0})
+
+
+@api_router.delete("/voicemails/{vm_id}")
+async def delete_voicemail(vm_id: str):
+    res = await db.voicemails.delete_one({"id": vm_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Voicemail not found")
+    return {"deleted": True}
+
+
+# ----------------------------- Scheduler -----------------------------
+def _in_window(now, start, end):
+    try:
+        sh, sm = map(int, start.split(":"))
+        eh, em = map(int, end.split(":"))
+    except Exception:
+        return False
+    cur = now.hour * 60 + now.minute
+    s = sh * 60 + sm
+    e = eh * 60 + em
+    if s <= e:
+        return s <= cur <= e
+    return cur >= s or cur <= e  # window wraps past midnight
+
+
+def _is_due(sched, now):
+    if not sched.get("enabled"):
+        return False
+    if not _in_window(now, sched.get("window_start", "00:00"), sched.get("window_end", "23:59")):
+        return False
+    lf = sched.get("last_fired")
+    if not lf:
+        return True
+    try:
+        last = datetime.fromisoformat(lf)
+    except Exception:
+        return True
+    delta = now - last
+    freq = sched.get("frequency", "daily")
+    if freq == "weekly":
+        return delta >= timedelta(days=7)
+    if freq == "seasonal":
+        return delta >= timedelta(days=1)
+    return delta >= timedelta(hours=20)  # daily
+
+
+@api_router.get("/schedules/due")
+async def schedules_due():
+    now = datetime.now(timezone.utc)
+    scheds = await db.schedules.find({"enabled": True}, {"_id": 0}).to_list(500)
+    due = [s for s in scheds if _is_due(s, now)]
+    for s in due:
+        prog = await db.programs.find_one({"slug": s["program_slug"]}, {"_id": 0})
+        s["program_name"] = prog["name"] if prog else s["program_slug"]
+        s["has_personas"] = prog.get("has_personas", False) if prog else False
+        s["interaction"] = prog.get("interaction", "menu") if prog else "menu"
+    return due
+
+
+@api_router.post("/schedules/{sched_id}/fired")
+async def schedule_fired(sched_id: str):
+    res = await db.schedules.update_one({"id": sched_id}, {"$set": {"last_fired": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"fired": True}
 
 
 app.include_router(api_router)

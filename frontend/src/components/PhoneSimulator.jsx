@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Phone, PhoneOff, PhoneCall, Volume2, Bell } from "lucide-react";
 import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
-import { api, playTone, playDialTone } from "../lib/phoneApi";
+import { api, playTone, playDialTone, playBeep } from "../lib/phoneApi";
 
 const STATUS = {
   onhook: "ON HOOK",
@@ -13,6 +13,8 @@ const STATUS = {
   result: "IN CALL",
   secret: "IN CALL",
   message: "IN CALL",
+  mindline_name: "MINDLINE",
+  mindline_talk: "IN SESSION",
   incoming: "RINGING",
 };
 
@@ -39,6 +41,7 @@ export default function PhoneSimulator() {
   const [messageLight, setMessageLight] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [incoming, setIncoming] = useState(false);
+  const [mindlineInput, setMindlineInput] = useState("");
 
   const audioRef = useRef(null);
   const ringTimer = useRef(null);
@@ -47,6 +50,8 @@ export default function PhoneSimulator() {
   const modeRef = useRef("onhook");
   const lastSpoken = useRef(null);
   const currentEgg = useRef(null);
+  const incomingRef = useRef(false);
+  const incomingSched = useRef(null);
 
   const offHook = mode !== "onhook";
 
@@ -163,6 +168,127 @@ export default function PhoneSimulator() {
     openMenu();
   }, [openMenu, setBuf, setModeSafe]);
 
+  // ---------------- MindLine (Dr. Dialtone) ----------------
+  const enterMindline = useCallback(async () => {
+    setModeSafe("mindline_name");
+    setMindlineInput("");
+    try {
+      const intro = await api.mindlineIntro();
+      push("system", "── MINDLINE ──");
+      push("program", `⚠ ${intro.disclaimer}`);
+      push("program", intro.name_prompt);
+      // Speak a short disclaimer (the full text stays on-screen) + the name prompt.
+      speak(
+        "MindLine is a comedy and entertainment experience. Doctor Dialtone is not a real doctor. " +
+          "For entertainment only. " + intro.name_prompt,
+        { voice: intro.voice }
+      );
+    } catch (e) {
+      push("error", "// MindLine is offline");
+    }
+  }, [push, speak, setModeSafe]);
+
+  const submitMindlineName = useCallback(async () => {
+    const name = mindlineInput.trim();
+    if (!name) return;
+    setMindlineInput("");
+    push("caller", name);
+    push("system", "…connecting to Dr. Dialtone…");
+    try {
+      const g = await api.mindlineGreeting(name);
+      push("program", `Dr. Dialtone: ${g.text}`);
+      setModeSafe("mindline_talk");
+      speak(g.text, { voice: g.voice }, () => playBeep());
+    } catch (e) {
+      push("error", `// Dr. Dialtone error: ${e?.message || e}`);
+    }
+  }, [mindlineInput, push, speak, setModeSafe]);
+
+  const sendMindline = useCallback(async () => {
+    const msg = mindlineInput.trim();
+    if (!msg) return;
+    setMindlineInput("");
+    push("caller", msg);
+    try {
+      const r = await api.mindlineReply(msg);
+      push("program", `Dr. Dialtone: ${r.reply}`);
+      speak(r.reply, { voice: r.voice });
+    } catch (e) {
+      push("error", "// Dr. Dialtone is buffering emotionally");
+    }
+  }, [mindlineInput, push, speak]);
+
+  const leaveMindline = useCallback(async () => {
+    try {
+      const s = await api.mindlineSignoff();
+      push("program", `Dr. Dialtone: ${s.text}`);
+      speak(s.text, { voice: s.voice }, () => backToMenu());
+    } catch (e) {
+      backToMenu();
+    }
+  }, [push, speak, backToMenu]);
+
+  // ---------------- Voicemail ----------------
+  const refreshMessageLight = useCallback(async () => {
+    try {
+      const vms = await api.getVoicemails();
+      setMessageLight(vms.some((v) => !v.heard));
+    } catch (e) {}
+  }, []);
+
+  const playVoicemails = useCallback(async () => {
+    setModeSafe("message");
+    setLines([]);
+    push("system", "── VOICEMAIL ──");
+    try {
+      const vms = await api.getVoicemails();
+      const unheard = vms.filter((v) => !v.heard);
+      const queue = unheard.length ? unheard : vms;
+      if (!queue.length) {
+        push("program", "You have no new messages. The message light is dark.");
+        speak("You have no new messages.", { voice: OPERATOR_VOICE });
+        setMessageLight(false);
+        return;
+      }
+      push("program", `You have ${queue.length} message${queue.length > 1 ? "s" : ""}.`);
+      let i = 0;
+      const playNext = () => {
+        if (i >= queue.length) {
+          setMessageLight(false);
+          push("system", "End of messages. Dial 0 for the main menu, or hang up.");
+          return;
+        }
+        const vm = queue[i++];
+        push("program", `☎ ${vm.from_name}: ${vm.text}`);
+        api.markVoicemail(vm.id).catch(() => {});
+        speak(vm.text, { voice: OPERATOR_VOICE }, playNext);
+      };
+      playNext();
+    } catch (e) {
+      push("error", "// voicemail unavailable");
+    }
+  }, [push, speak, setModeSafe]);
+
+  // ---------------- Scheduled incoming calls ----------------
+  const triggerScheduledRing = useCallback((sched) => {
+    if (offHook || incomingRef.current) return;
+    incomingSched.current = sched;
+    incomingRef.current = true;
+    setIncoming(true);
+    setMessageLight(false);
+    ringTimer.current = setTimeout(async () => {
+      setIncoming(false);
+      incomingRef.current = false;
+      try {
+        await api.createVoicemail(sched.program_slug);
+        if (sched.id) await api.scheduleFired(sched.id);
+      } catch (e) {}
+      setMessageLight(true);
+      incomingSched.current = null;
+    }, 9000);
+  }, [offHook]);
+
+
   const generateFortune = useCallback(async (personaId) => {
     setModeSafe("busy");
     push("system", "…the connection hums with energy…");
@@ -204,7 +330,10 @@ export default function PhoneSimulator() {
     push("caller", `dialed ${digits}`);
     try {
       const res = await api.dial(digits);
-      if (res.type === "program" && res.has_personas) {
+      if (res.type === "program" && res.interaction === "mindline") {
+        push("program", `Connecting to ${res.name}...`);
+        enterMindline();
+      } else if (res.type === "program" && res.has_personas) {
         setModeSafe("fortune_persona");
         setPersonas(res.personas || []);
         setProgram(res);
@@ -246,25 +375,34 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, push, speak, deliver, setModeSafe]);
+  }, [personas, generateFortune, push, speak, deliver, enterMindline, setModeSafe]);
 
   const lift = useCallback(() => {
     if (incoming) {
       clearTimeout(ringTimer.current);
       setIncoming(false);
+      incomingRef.current = false;
       setMessageLight(false);
-      setModeSafe("fortune_persona");
+      const sched = incomingSched.current;
+      incomingSched.current = null;
       setBuf("");
       setLines([]);
-      push("program", "The Fortune Caller is calling YOU. The line was scheduled to ring.");
-      loadFortunePersonas();
+      if (sched && sched.id) api.scheduleFired(sched.id).catch(() => {});
+      const label = sched ? sched.program_name : "The Fortune Caller";
+      push("program", `${label} is calling YOU. The line was scheduled to ring.`);
+      if (sched && sched.interaction === "mindline") {
+        enterMindline();
+      } else {
+        setModeSafe("fortune_persona");
+        loadFortunePersonas();
+      }
       return;
     }
     setModeSafe("dialtone");
     setBuf("");
     setLines([]);
     openMenu();
-  }, [incoming, openMenu, push, loadFortunePersonas, setBuf, setModeSafe]);
+  }, [incoming, openMenu, push, loadFortunePersonas, enterMindline, setBuf, setModeSafe]);
 
   const chooseAnotherOracle = useCallback(() => {
     clearTimeout(digitTimer.current);
@@ -293,6 +431,12 @@ export default function PhoneSimulator() {
     clearTimeout(digitTimer.current);
     const m = modeRef.current;
     const inCall = m === "result" || m === "secret" || m === "message";
+    const inMindline = m === "mindline_name" || m === "mindline_talk";
+
+    if (inMindline) {
+      if (d === "0") leaveMindline(); // use the on-screen input to talk; 0 hangs up the session
+      return;
+    }
 
     if (d === "*") {
       const b = bufferRef.current;
@@ -300,7 +444,7 @@ export default function PhoneSimulator() {
         setBuf("");
         processDial(b); // confirm a longer dialed number
       } else if (m === "dialtone") {
-        processDial("*"); // straight to voicemail
+        playVoicemails(); // * from the menu = check voicemail
       } else if (inCall) {
         replayLast(); // hear it again
       }
@@ -334,18 +478,30 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, leaveMindline, setBuf]);
 
   const simulateScheduledCall = useCallback(() => {
-    if (offHook || incoming) return;
-    setIncoming(true);
-    setMessageLight(false);
-    ringTimer.current = setTimeout(() => {
-      setIncoming(false);
-      setMessageLight(true);
-      setModeSafe("onhook");
-    }, 9000);
-  }, [offHook, incoming, setModeSafe]);
+    triggerScheduledRing({
+      program_slug: "fortune",
+      program_name: "The Fortune Caller",
+      interaction: "menu",
+      has_personas: true,
+      id: null,
+    });
+  }, [triggerScheduledRing]);
+
+  // poll the backend for scheduled calls that are due in their window
+  useEffect(() => {
+    refreshMessageLight();
+    const iv = setInterval(async () => {
+      if (modeRef.current !== "onhook" || incomingRef.current) return;
+      try {
+        const due = await api.schedulesDue();
+        if (due && due.length) triggerScheduledRing(due[0]);
+      } catch (e) {}
+    }, 20000);
+    return () => clearInterval(iv);
+  }, [refreshMessageLight, triggerScheduledRing]);
 
   useEffect(() => () => {
     clearTimeout(ringTimer.current);
@@ -422,6 +578,32 @@ export default function PhoneSimulator() {
             placeholder="whisper a question into the handset (optional)…"
             className="mb-4 w-full rounded-sm border-2 border-neutral-800 bg-black px-3 py-2 font-mono text-sm text-cyan-300 placeholder:text-neutral-700 focus:border-[#39ff14] focus:outline-none"
           />
+        )}
+
+        {/* MindLine voice-input simulation (typed here; real device uses Whisper STT) */}
+        {(mode === "mindline_name" || mode === "mindline_talk") && (
+          <form
+            className="mb-4 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              mode === "mindline_name" ? submitMindlineName() : sendMindline();
+            }}
+          >
+            <input
+              data-testid="mindline-input"
+              value={mindlineInput}
+              onChange={(e) => setMindlineInput(e.target.value)}
+              placeholder={mode === "mindline_name" ? "state your name…" : "speak to Dr. Dialtone…"}
+              className="flex-1 rounded-sm border-2 border-neutral-800 bg-black px-3 py-2 font-mono text-sm text-cyan-300 placeholder:text-neutral-700 focus:border-[#39ff14] focus:outline-none"
+            />
+            <button
+              type="submit"
+              data-testid="mindline-send-btn"
+              className="tactile shrink-0 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 px-4 font-mono text-xs font-bold uppercase tracking-widest crt-glow"
+            >
+              Send
+            </button>
+          </form>
         )}
 
         {/* Keypad */}

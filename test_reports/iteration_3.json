@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 3 full-stack testing of The Line (MindLine + Voicemail + Scheduler). Backend: 50/50 pytest passed (35 regression + 15 new). MindLine: /mindline/intro returns full disclaimer (>100 chars, contains 'not a real doctor'), name_prompt, voice='echo'. /mindline/greeting {name:'Alice'} returns text containing 'Alice' and 'Doctor Dialtone'; empty name -> 'Caller'. /mindline/reply: 'my mother' -> family reply, 'I feel anxious' -> reflective reply mentioning 'anxious', '' -> silence response, 'asdfghjkl' -> fallback. /mindline/signoff returns 'Goodbye'. Dial: POST /session/dial {digits:'3'} -> type program, name 'MindLine', interaction 'mindline'; menu key 3 = MindLine. Voicemail CRUD: POST fortune/therapy uses themed templates ('The Fortune Caller' / 'Dr. Dialtone'), 7-day expires_at set, list filters expired, PATCH sets heard=true, DELETE removes, missing id -> 404. Scheduler: POST /schedules with 00:00-23:59 window appears in /schedules/due with program_name='Fortune Caller' and interaction; POST /schedules/{id}/fired sets last_fired and drops schedule from due list (daily 20h suppression); narrow future-window schedule NOT in due; fired 404. Regression: 35 existing tests all pass (oracles CRUD, personas seasonal filtering, 14 secret codes + 555 wildcard, 411/900 branches, 007/1955/101 clue, fortune AI text for zoltan/sphinx/goy w/ Lucky numbers, TTS mp3). Frontend (Playwright, no JS/pageerrors): Lift handset -> dial 3 + * -> full MindLine disclaimer + name prompt appear in crt-console; mindline-input+send-btn visible; entered 'Bob' -> Dr. Dialtone greeting containing 'Bob' in console (status IN SESSION); 'I feel sad' -> 'Dr. Dialtone: Do you often feel sad when you call fictional telephone computers?' (ELIZA reflective); pressing keypad 0 -> 'Thank you for calling MindLine ... Goodbye' signoff and returns to menu. Voicemail: after POST /api/voicemails {program_slug:'fortune'} and reload, message-light shows 'MSG' with red glow class; lift + * plays 'VOICEMAIL' section reading 'The Fortune Caller: This is the Fortune Caller...' in the console. Scheduled call: after POST /schedules (00:00-23:59), simulate-call-btn click triggers ringer-indicator showing 'RING' and the lift-handset-btn label switches to 'Answer'. All flows worked first-try.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "seed_data.py `therapy` program: server.py seed() uses $setOnInsert, so if a prior deployment had therapy enabled=false/coming_soon=true the new interaction='mindline' will NOT propagate on restart. The note says therapy was patched live via API. Recommend using $set for volatile fields (name/enabled/coming_soon/interaction/description) or a versioned seed.",
+    "server.py _is_due() uses datetime.fromisoformat(last_fired) but last_fired stored via now_iso() is timezone-aware; subtracting from a tz-aware `now` is fine. Good.",
+    "server.py POST /voicemails does NOT validate program_slug against known values — accepts arbitrary slugs (falls back to _default template). Acceptable but consider a whitelist for typos.",
+    "PhoneSimulator.jsx is 653 lines and still growing (MindLine + scheduler poll + voicemail playback). Should be split into hooks (useMindline, useScheduler, useVoicemail) for maintainability.",
+    "mindline.respond uses random.choice which yields non-deterministic replies — tests must therefore use OR-based assertions. Acceptable for entertainment character."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/iter3_results.xml",
+    "/app/test_reports/iteration_3.json"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "N/A (no auth). EMERGENT_LLM_KEY loaded from backend/.env.",
+  "seed_data_creation": "Backend seed unchanged (7 programs incl. therapy, 9 oracles, 15 secret codes). Tests create TEST_ prefixed schedules/voicemails/oracles and clean up.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "MindLine responses are RANDOM (random.choice over template pools) so assert on keyword presence, not exact string. Family keyword rule triggers on 'mother|father|mom|dad|family|parents' and returns text containing 'family' or 'beep'. Voicemail templates keyed on program_slug 'fortune' | 'therapy' | else '_default'. Scheduler daily suppression = 20h after last_fired; wide window '00:00'-'23:59' is required to test /schedules/due at any time of day. `simulate-call-btn` requires at least one enabled schedule for a real program (fortune works) OR a coming_soon one. Console text lives under [data-testid=crt-console], role-styled but page.innerText works. message-light data-testid renders 'MSG' text + red-500 bg class when voicemails exist (polled every ~20s or on refresh). backend/tests/backend_test.py (35) + backend/tests/test_iteration3.py (15) = 50 tests; run both from /app root: `pytest backend/tests/ -v`.",
+  "rca of the issue": "N/A — no issues found."
+}

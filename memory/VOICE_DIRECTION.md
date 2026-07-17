@@ -83,10 +83,32 @@ When we upgrade to **ElevenLabs (Eleven v3)** we lock in the target voices below
 
 ---
 
-## Traveling / Seasonal Oracles (future)
-Rotate in/out by season or event; swap seats with residents. To be authored — capture each with
-the same fields above (character, target voice, sign-off, season window). User may also clone &
-edit any oracle into their own preferred style.
+## Traveling / Seasonal Oracles (backlog — NOT yet live; add after the 9 residents are flushed out)
+Rotate in/out by season/event; can swap seats with residents in the Oracle Manager.
+
+### Miss Information
+- **Character:** confidently predicts everything, correctly about half the time.
+- **Target AI voice:** cheerful customer-service voice, overly polished, relentlessly positive, subtly chaotic.
+- **Sign-off:** "Your prediction has been successfully processed! Call Miss Information again for another answer of uncertain accuracy."
+
+### The Psychic Accountant
+- **Character:** foresees your future and your upcoming overdraft fee.
+- **Target AI voice:** dry office-professional, nearly monotone, devastatingly precise comedic timing.
+- **Sign-off:** "Your future has been calculated, including applicable fees. Call the Psychic Accountant again before making any major purchases."
+
+### The Ghost in the Wi-Fi
+- **Character:** a digital spirit haunting nearby devices.
+- **Target AI voice:** fragmented whisper, intermittent connection artifacts, layered voices, sound moving between left and right (needs ElevenLabs/FX).
+- **Sign-off:** "The signal is fading, but I remain within the network. Call the Ghost in the Wi-Fi again when the connection begins to whisper."
+
+### The Sacred Taco
+- **Character:** delivers ancient wisdom every Tuesday.
+- **Target AI voice:** relaxed, soulful, understated humor, tiny ceremonial bell after each fortune.
+- **Sign-off:** "The sacred filling has spoken. Call the Sacred Taco again when your spirit, or your appetite, requires guidance."
+
+### Dr. Dialtone (MindLine program voice — LIVE now on OpenAI `echo`)
+- **Character:** primitive robot therapist (ELIZA/Dr. Sbaitso). NOT lifelike AI.
+- **Target AI voice:** flat, primitive computer voice; slow, stiff pronunciation, unnatural pauses; no warmth/emotion. (True SAM/robotic synth is a later upgrade.)
 
 ## Upgrade checklist (when we integrate ElevenLabs)
 1. Get ElevenLabs API key from user.

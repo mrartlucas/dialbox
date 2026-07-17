@@ -26,6 +26,16 @@ export const api = {
   createSchedule: (data) => http.post("/schedules", data).then((r) => r.data),
   updateSchedule: (id, data) => http.patch(`/schedules/${id}`, data).then((r) => r.data),
   deleteSchedule: (id) => http.delete(`/schedules/${id}`).then((r) => r.data),
+  schedulesDue: () => http.get("/schedules/due").then((r) => r.data),
+  scheduleFired: (id) => http.post(`/schedules/${id}/fired`).then((r) => r.data),
+  mindlineIntro: () => http.get("/mindline/intro").then((r) => r.data),
+  mindlineGreeting: (name) => http.post("/mindline/greeting", { name }).then((r) => r.data),
+  mindlineReply: (message) => http.post("/mindline/reply", { message }).then((r) => r.data),
+  mindlineSignoff: () => http.get("/mindline/signoff").then((r) => r.data),
+  getVoicemails: () => http.get("/voicemails").then((r) => r.data),
+  createVoicemail: (program_slug) => http.post("/voicemails", { program_slug }).then((r) => r.data),
+  markVoicemail: (id) => http.patch(`/voicemails/${id}`).then((r) => r.data),
+  deleteVoicemail: (id) => http.delete(`/voicemails/${id}`).then((r) => r.data),
 };
 
 // Simple WebAudio DTMF tones + dial tone
@@ -78,5 +88,20 @@ export function playDialTone(duration = 1.2) {
       osc.start();
       osc.stop(c.currentTime + duration);
     });
+  } catch (e) {}
+}
+
+export function playBeep() {
+  try {
+    const c = ctx();
+    const gain = c.createGain();
+    gain.gain.value = 0.12;
+    gain.connect(c.destination);
+    const osc = c.createOscillator();
+    osc.type = "square";
+    osc.frequency.value = 880;
+    osc.connect(gain);
+    osc.start();
+    osc.stop(c.currentTime + 0.28);
   } catch (e) {}
 }
