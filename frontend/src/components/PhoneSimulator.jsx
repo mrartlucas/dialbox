@@ -17,6 +17,12 @@ const STATUS = {
 };
 
 const INTER_DIGIT_MS = 1300;
+const OPERATOR_VOICE = "nova"; // spoken IVR menu / operator prompts
+const ORACLE_VOICE = "shimmer"; // spoken Fortune Teller intro
+
+const oraclePrompt = (ps) =>
+  "Welcome to the Fortune Teller. Choose your oracle. " +
+  ps.map((p, i) => `For ${p.name}, dial ${i + 1}. `).join("");
 
 export default function PhoneSimulator() {
   const [mode, setMode] = useState("onhook");
@@ -94,10 +100,15 @@ export default function PhoneSimulator() {
       menu.items.forEach((it) => push("line", `  ${it.key}  ${it.name}`));
       push("line", `  ${menu.voicemail_key}  Voicemail`);
       push("system", "Dial a number to select. For a secret number, dial it then press \u2731 to confirm.");
+      const spoken =
+        `${menu.greeting} ` +
+        menu.items.map((it) => `For ${it.name}, dial ${it.key}. `).join("") +
+        "For voicemail, press star.";
+      speak(spoken, { voice: OPERATOR_VOICE });
     } catch (e) {
       push("error", "// could not reach the exchange");
     }
-  }, [push]);
+  }, [push, speak]);
 
   const loadFortunePersonas = useCallback(async (intro) => {
     try {
@@ -108,10 +119,11 @@ export default function PhoneSimulator() {
       push("system", "── FORTUNE TELLER: CHOOSE YOUR ORACLE ──");
       ps.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
       push("system", "Dial 1-4 to choose. (Optionally whisper a question below first.)");
+      speak(oraclePrompt(ps), { voice: ORACLE_VOICE });
     } catch (e) {
       push("error", "// personas unavailable");
     }
-  }, [push]);
+  }, [push, speak]);
 
   const backToMenu = useCallback(() => {
     clearTimeout(digitTimer.current);
@@ -165,6 +177,7 @@ export default function PhoneSimulator() {
         push("system", "── CHOOSE YOUR ORACLE ──");
         (res.personas || []).forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
         push("system", "Dial 1-4 to choose. (Optionally whisper a question below first.)");
+        speak(oraclePrompt(res.personas || []), { voice: ORACLE_VOICE });
       } else if (res.type === "secret") {
         setModeSafe("secret");
         push("program", `\u260e ${res.title}`);
@@ -175,10 +188,12 @@ export default function PhoneSimulator() {
         setModeSafe("message");
         push("program", res.message);
         push("system", "Press \u2731 to return to the menu, or hang up.");
+        speak(res.message, { voice: OPERATOR_VOICE });
       } else {
         setModeSafe("message");
         push("error", res.message || "// not in service");
         push("system", "Press \u2731 to return to the menu, or hang up.");
+        speak(res.message || "We're sorry. The number you have dialed is not in service.", { voice: OPERATOR_VOICE });
       }
     } catch (e) {
       setModeSafe("message");
