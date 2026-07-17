@@ -18,10 +18,14 @@ const STATUS = {
 
 const INTER_DIGIT_MS = 1300;
 const OPERATOR_VOICE = "nova"; // spoken IVR menu / operator prompts
-const ORACLE_VOICE = "shimmer"; // spoken Fortune Teller intro
+const ORACLE_VOICE = "shimmer"; // spoken Fortune Caller intro
+
+// Force correct TTS pronunciation for stylized names.
+const sayable = (t) =>
+  (t || "").replace(/Zartan/g, "Zar-tan").replace(/\bAZ\b/g, "Oz");
 
 const oraclePrompt = (ps) =>
-  "Welcome to the Fortune Teller. Choose your oracle. " +
+  "Welcome to the Fortune Caller. Choose your oracle. " +
   ps.map((p, i) => `For ${p.name}, dial ${i + 1}. `).join("") +
   "Or dial 0 to return to the main menu.";
 
@@ -71,7 +75,7 @@ export default function PhoneSimulator() {
   const speak = useCallback(async (text, opts, onDone) => {
     try {
       setPlaying(true);
-      const res = await api.tts(text, opts);
+      const res = await api.tts(sayable(text), opts);
       stopAudio();
       const audio = new Audio(`data:audio/mp3;base64,${res.audio_base64}`);
       audioRef.current = audio;
@@ -139,7 +143,7 @@ export default function PhoneSimulator() {
     try {
       const ps = await api.getPersonas();
       setPersonas(ps);
-      setProgram({ slug: "fortune", name: "Fortune Teller", has_personas: true });
+      setProgram({ slug: "fortune", name: "Fortune Caller", has_personas: true });
       if (intro) push("program", intro);
       push("system", "── FORTUNE TELLER: CHOOSE YOUR ORACLE ──");
       ps.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
@@ -189,7 +193,7 @@ export default function PhoneSimulator() {
       const idx = parseInt(digits, 10) - 1;
       if (personas[idx]) {
         push("caller", `dialed ${digits} — ${personas[idx].name}`);
-        generateFortune(personas[idx].id);
+        generateFortune(personas[idx].slug);
       } else {
         push("error", "// no such voice on this line");
       }
@@ -252,7 +256,7 @@ export default function PhoneSimulator() {
       setModeSafe("fortune_persona");
       setBuf("");
       setLines([]);
-      push("program", "The Fortune Teller is calling YOU. The line was scheduled to ring.");
+      push("program", "The Fortune Caller is calling YOU. The line was scheduled to ring.");
       loadFortunePersonas();
       return;
     }
@@ -323,6 +327,7 @@ export default function PhoneSimulator() {
     }
 
     // dialtone or oracle-select: accumulate digits; single selections auto-dial after a pause
+    stopAudio(); // barge-in: cut the current prompt the moment the caller dials
     const nb = bufferRef.current.length < 14 ? bufferRef.current + d : bufferRef.current;
     setBuf(nb);
     digitTimer.current = setTimeout(() => {

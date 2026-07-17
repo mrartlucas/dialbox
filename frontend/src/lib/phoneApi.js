@@ -8,6 +8,10 @@ const http = axios.create({ baseURL: API });
 export const api = {
   getMenu: () => http.get("/menu").then((r) => r.data),
   getPersonas: () => http.get("/personas").then((r) => r.data),
+  getOracles: () => http.get("/oracles").then((r) => r.data),
+  createOracle: (data) => http.post("/oracles", data).then((r) => r.data),
+  updateOracle: (slug, data) => http.patch(`/oracles/${slug}`, data).then((r) => r.data),
+  deleteOracle: (slug) => http.delete(`/oracles/${slug}`).then((r) => r.data),
   getPrograms: () => http.get("/programs").then((r) => r.data),
   updateProgram: (slug, data) => http.patch(`/programs/${slug}`, data).then((r) => r.data),
   dial: (digits) => http.post("/session/dial", { digits }).then((r) => r.data),

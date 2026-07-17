@@ -100,10 +100,70 @@ class TTSRequest(BaseModel):
     persona: Optional[str] = None
 
 
+class Oracle(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    slug: str
+    name: str
+    blurb: str = ""
+    voice: str = "onyx"
+    system_prompt: str
+    sign_off: str = ""
+    type: str = "resident"       # resident | traveling
+    season: str = "all_year"     # all_year | spring | summer | fall | winter | halloween | holiday | valentines
+    enabled: bool = True
+    order: int = 99
+
+
+class OracleUpdate(BaseModel):
+    name: Optional[str] = None
+    blurb: Optional[str] = None
+    voice: Optional[str] = None
+    system_prompt: Optional[str] = None
+    sign_off: Optional[str] = None
+    type: Optional[str] = None
+    season: Optional[str] = None
+    enabled: Optional[bool] = None
+    order: Optional[int] = None
+
+
+def active_seasons(now=None):
+    m = (now or datetime.now(timezone.utc)).month
+    if m in (3, 4, 5):
+        base = "spring"
+    elif m in (6, 7, 8):
+        base = "summer"
+    elif m in (9, 10, 11):
+        base = "fall"
+    else:
+        base = "winter"
+    specials = set()
+    if m == 10:
+        specials.add("halloween")
+    if m == 12:
+        specials.add("holiday")
+    if m == 2:
+        specials.add("valentines")
+    return {"all_year", base} | specials
+
+
+async def active_personas():
+    """Enabled personas visible right now (residents always; travelers only in season)."""
+    active = active_seasons()
+    docs = await db.personas.find({"enabled": True}, {"_id": 0}).sort("order", 1).to_list(100)
+    return [d for d in docs if d.get("type") == "resident" or d.get("season", "all_year") in active]
+
+
 # ----------------------------- Seeding -----------------------------
 async def seed():
     for prog in PROGRAMS:
         await db.programs.update_one({"slug": prog["slug"]}, {"$setOnInsert": prog}, upsert=True)
+    for i, (slug, p) in enumerate(PERSONAS.items()):
+        doc = {
+            "id": str(uuid.uuid4()), "slug": slug, "name": p["name"], "blurb": p["blurb"],
+            "voice": p["voice"], "system_prompt": p["system_prompt"], "sign_off": p.get("sign_off", ""),
+            "type": "resident", "season": "all_year", "enabled": True, "order": i + 1,
+        }
+        await db.personas.update_one({"slug": slug}, {"$setOnInsert": doc}, upsert=True)
     for code in SECRET_CODES:
         content = {"title": code["title"], "response_text": code["response_text"],
                    "voice": code["voice"]}
@@ -127,10 +187,45 @@ async def root():
 
 @api_router.get("/personas")
 async def get_personas():
-    return [
-        {"id": p["id"], "name": p["name"], "blurb": p["blurb"], "voice": p["voice"]}
-        for p in PERSONAS.values()
-    ]
+    """Phone-facing: oracles available right now, ordered for the keypad."""
+    docs = await active_personas()
+    return [{"slug": d["slug"], "name": d["name"], "blurb": d["blurb"], "voice": d["voice"]}
+            for d in docs]
+
+
+@api_router.get("/oracles")
+async def list_oracles():
+    """Config manager: every oracle with full fields."""
+    return await db.personas.find({}, {"_id": 0}).sort("order", 1).to_list(200)
+
+
+@api_router.post("/oracles")
+async def create_oracle(payload: Oracle):
+    exists = await db.personas.find_one({"slug": payload.slug})
+    if exists:
+        raise HTTPException(status_code=400, detail="An oracle with that slug already exists")
+    doc = payload.model_dump()
+    await db.personas.insert_one({**doc})
+    return doc
+
+
+@api_router.patch("/oracles/{slug}")
+async def update_oracle(slug: str, payload: OracleUpdate):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    res = await db.personas.update_one({"slug": slug}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Oracle not found")
+    return await db.personas.find_one({"slug": slug}, {"_id": 0})
+
+
+@api_router.delete("/oracles/{slug}")
+async def delete_oracle(slug: str):
+    res = await db.personas.delete_one({"slug": slug})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Oracle not found")
+    return {"deleted": True}
 
 
 @api_router.get("/programs")
@@ -245,8 +340,9 @@ async def dial(payload: DialRequest):
         payload_out = {"type": "program", "slug": prog["slug"], "name": prog["name"],
                        "has_personas": prog.get("has_personas", False)}
         if prog.get("has_personas"):
+            docs = await active_personas()
             payload_out["personas"] = [
-                {"id": p["id"], "name": p["name"], "blurb": p["blurb"]} for p in PERSONAS.values()
+                {"slug": d["slug"], "name": d["name"], "blurb": d["blurb"]} for d in docs
             ]
         return payload_out
 
@@ -274,9 +370,9 @@ async def dial(payload: DialRequest):
 
 @api_router.post("/programs/fortune")
 async def fortune(payload: FortuneRequest):
-    persona = PERSONAS.get(payload.persona)
+    persona = await db.personas.find_one({"slug": payload.persona}, {"_id": 0})
     if not persona:
-        raise HTTPException(status_code=404, detail="Unknown persona")
+        raise HTTPException(status_code=404, detail="Unknown oracle")
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="LLM key not configured")
 
@@ -294,7 +390,7 @@ async def fortune(payload: FortuneRequest):
         raise HTTPException(status_code=502, detail=f"Fortune engine error: {e}")
 
     text = str(text).strip()
-    return {"persona": persona["id"], "persona_name": persona["name"],
+    return {"persona": persona["slug"], "persona_name": persona["name"],
             "voice": persona["voice"], "text": text, "sign_off": persona.get("sign_off", "")}
 
 
@@ -304,7 +400,7 @@ async def tts(payload: TTSRequest):
         raise HTTPException(status_code=500, detail="LLM key not configured")
     voice = payload.voice
     if not voice and payload.persona:
-        p = PERSONAS.get(payload.persona)
+        p = await db.personas.find_one({"slug": payload.persona}, {"_id": 0})
         voice = p["voice"] if p else "onyx"
     voice = voice or "onyx"
 

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Power, Hash, KeyRound, CalendarClock, Plus, Trash2, Save, Sparkles } from "lucide-react";
+import { Power, Hash, KeyRound, CalendarClock, Plus, Trash2, Save, Sparkles, Wand2, Pencil, X } from "lucide-react";
 import { api } from "../lib/phoneApi";
+import OraclesTab from "./OraclesTab";
 
 const CATEGORY_COLOR = {
   all_ages: "text-[#39ff14] border-[#39ff14]/40",
@@ -30,6 +31,7 @@ function Toggle({ on, onClick, testid }) {
 
 const TABS = [
   { id: "programs", label: "Programs & Menu", icon: Hash },
+  { id: "oracles", label: "Oracles", icon: Wand2 },
   { id: "secrets", label: "Secret Numbers", icon: KeyRound },
   { id: "schedules", label: "Schedules", icon: CalendarClock },
 ];
@@ -108,6 +110,7 @@ export default function ConfigPanel() {
             {tab === "programs" && (
               <ProgramsTab programs={programs} onToggle={toggleProgram} onChangeKey={changeKey} />
             )}
+            {tab === "oracles" && <OraclesTab />}
             {tab === "secrets" && (
               <SecretsTab secrets={secrets} reload={loadAll} setSecrets={setSecrets} />
             )}
@@ -186,19 +189,82 @@ function ProgramsTab({ programs, onToggle, onChangeKey }) {
 }
 
 const VOICES = ["onyx", "fable", "shimmer", "sage", "echo", "alloy", "nova", "coral", "ash"];
-const emptySecret = { code: "", title: "", response_text: "", voice: "onyx", enabled: true };
+const emptySecret = { code: "", title: "", response_text: "", voice: "onyx", clue: "", branches: null, enabled: true };
+
+const branchesToRows = (b) =>
+  b ? Object.entries(b).map(([key, v]) => ({ key, text: v.text || "", voice: v.voice || "onyx" })) : [];
+const rowsToBranches = (rows) => {
+  const clean = rows.filter((r) => r.key && r.text);
+  if (!clean.length) return null;
+  const out = {};
+  clean.forEach((r) => (out[r.key] = { text: r.text, voice: r.voice }));
+  return out;
+};
+
+const sInput = "w-full rounded-sm border-2 border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-sm focus:border-[#ffb000] focus:outline-none";
+
+function BranchesEditor({ rows, setRows, idPrefix }) {
+  return (
+    <div className="rounded-sm border border-neutral-800 bg-neutral-950/60 p-3">
+      <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.25em] text-cyan-300">
+        Branch sub-menu (caller dials a digit) — optional
+      </p>
+      <div className="space-y-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-start gap-2" data-testid={`${idPrefix}-branch-${i}`}>
+            <input
+              data-testid={`${idPrefix}-branch-key-${i}`}
+              value={r.key}
+              maxLength={1}
+              onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, key: e.target.value.replace(/[^0-9]/g, "") } : x)))}
+              placeholder="#"
+              className="h-9 w-9 shrink-0 rounded-sm border-2 border-neutral-800 bg-black text-center font-mono text-sm amber-glow focus:border-[#ffb000] focus:outline-none"
+            />
+            <input
+              data-testid={`${idPrefix}-branch-text-${i}`}
+              value={r.text}
+              onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))}
+              placeholder="spoken response for this option…"
+              className="flex-1 rounded-sm border-2 border-neutral-800 bg-black px-2 py-1.5 font-mono text-xs focus:border-[#ffb000] focus:outline-none"
+            />
+            <select
+              value={r.voice}
+              onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, voice: e.target.value } : x)))}
+              className="rounded-sm border-2 border-neutral-800 bg-black px-1 py-1.5 font-mono text-xs focus:border-[#ffb000] focus:outline-none"
+            >
+              {VOICES.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <button onClick={() => setRows(rows.filter((_, j) => j !== i))} className="tactile shrink-0 rounded-sm border-2 border-red-700 bg-red-600/10 p-1.5 text-red-400"><X className="h-3.5 w-3.5" /></button>
+          </div>
+        ))}
+      </div>
+      <button
+        data-testid={`${idPrefix}-branch-add`}
+        onClick={() => setRows([...rows, { key: "", text: "", voice: "nova" }])}
+        className="mt-2 flex items-center gap-1 font-mono text-[10px] uppercase tracking-widest text-neutral-500 hover:text-cyan-300"
+      >
+        <Plus className="h-3 w-3" /> add option
+      </button>
+    </div>
+  );
+}
 
 function SecretsTab({ secrets, setSecrets }) {
   const [form, setForm] = useState(emptySecret);
+  const [addRows, setAddRows] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [editForm, setEditForm] = useState(emptySecret);
+  const [editRows, setEditRows] = useState([]);
 
   const add = async () => {
     if (!form.code || !form.title || !form.response_text) return;
     setSaving(true);
     try {
-      const created = await api.createSecretCode(form);
+      const created = await api.createSecretCode({ ...form, branches: rowsToBranches(addRows), clue: form.clue || null });
       setSecrets((prev) => [...prev, created]);
       setForm(emptySecret);
+      setAddRows([]);
     } finally {
       setSaving(false);
     }
@@ -208,10 +274,18 @@ function SecretsTab({ secrets, setSecrets }) {
     const updated = await api.updateSecretCode(s.id, { enabled: !s.enabled });
     setSecrets((prev) => prev.map((x) => (x.id === s.id ? updated : x)));
   };
-
   const remove = async (s) => {
     await api.deleteSecretCode(s.id);
     setSecrets((prev) => prev.filter((x) => x.id !== s.id));
+  };
+  const startEdit = (s) => { setEditId(s.id); setEditForm({ ...s }); setEditRows(branchesToRows(s.branches)); };
+  const saveEdit = async () => {
+    const updated = await api.updateSecretCode(editId, {
+      title: editForm.title, response_text: editForm.response_text, voice: editForm.voice,
+      clue: editForm.clue || null, branches: rowsToBranches(editRows),
+    });
+    setSecrets((prev) => prev.map((x) => (x.id === editId ? updated : x)));
+    setEditId(null);
   };
 
   return (
@@ -221,48 +295,17 @@ function SecretsTab({ secrets, setSecrets }) {
           <Sparkles className="h-3.5 w-3.5" /> New Easter-Egg Number
         </p>
         <div className="grid grid-cols-2 gap-3">
-          <input
-            data-testid="secret-code-input"
-            value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })}
-            placeholder="dial code e.g. 555"
-            className="rounded-sm border-2 border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-sm amber-glow focus:border-[#ffb000] focus:outline-none"
-          />
-          <input
-            data-testid="secret-title-input"
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="title"
-            className="rounded-sm border-2 border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-sm focus:border-[#ffb000] focus:outline-none"
-          />
+          <input data-testid="secret-code-input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="dial code e.g. 555" className={sInput + " amber-glow"} />
+          <input data-testid="secret-title-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="title" className={sInput} />
         </div>
-        <textarea
-          data-testid="secret-text-input"
-          value={form.response_text}
-          onChange={(e) => setForm({ ...form, response_text: e.target.value })}
-          placeholder="spoken response…"
-          rows={2}
-          className="mt-3 w-full rounded-sm border-2 border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-sm focus:border-[#ffb000] focus:outline-none"
-        />
+        <textarea data-testid="secret-text-input" value={form.response_text} onChange={(e) => setForm({ ...form, response_text: e.target.value })} placeholder="spoken response…" rows={2} className={sInput + " mt-3"} />
+        <input data-testid="secret-clue-input" value={form.clue} onChange={(e) => setForm({ ...form, clue: e.target.value })} placeholder="story clue (optional) — hints at another number…" className={sInput + " mt-3"} />
+        <div className="mt-3"><BranchesEditor rows={addRows} setRows={setAddRows} idPrefix="add" /></div>
         <div className="mt-3 flex items-center gap-3">
-          <select
-            data-testid="secret-voice-select"
-            value={form.voice}
-            onChange={(e) => setForm({ ...form, voice: e.target.value })}
-            className="rounded-sm border-2 border-neutral-800 bg-neutral-950 px-3 py-2 font-mono text-sm focus:border-[#ffb000] focus:outline-none"
-          >
-            {VOICES.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
+          <select data-testid="secret-voice-select" value={form.voice} onChange={(e) => setForm({ ...form, voice: e.target.value })} className={sInput + " max-w-[8rem]"}>
+            {VOICES.map((v) => <option key={v} value={v}>{v}</option>)}
           </select>
-          <button
-            data-testid="add-secret-btn"
-            onClick={add}
-            disabled={saving}
-            className="tactile flex items-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest crt-glow disabled:opacity-40"
-          >
+          <button data-testid="add-secret-btn" onClick={add} disabled={saving} className="tactile flex items-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest crt-glow disabled:opacity-40">
             <Plus className="h-4 w-4" /> Add
           </button>
         </div>
@@ -270,27 +313,38 @@ function SecretsTab({ secrets, setSecrets }) {
 
       <div className="space-y-3">
         {secrets.map((s) => (
-          <div
-            key={s.id}
-            data-testid={`secret-row-${s.code}`}
-            className="flex items-center gap-4 rounded-sm border-2 border-neutral-800 bg-black p-3"
-          >
-            <span className="w-16 shrink-0 font-mono text-lg amber-glow">{s.code}</span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-mono text-sm font-bold">{s.title}</p>
-              <p className="truncate text-xs text-neutral-500">{s.response_text}</p>
+          <div key={s.id} data-testid={`secret-row-${s.code}`} className="rounded-sm border-2 border-neutral-800 bg-black">
+            <div className="flex items-center gap-4 p-3">
+              <span className="w-16 shrink-0 font-mono text-lg amber-glow">{s.code}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate font-mono text-sm font-bold">{s.title}</p>
+                  {s.branches && <span className="shrink-0 rounded-[2px] border border-cyan-400/40 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-widest text-cyan-300">menu</span>}
+                  {s.clue && <span className="shrink-0 rounded-[2px] border border-[#ffb000]/40 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-widest text-[#ffb000]">clue</span>}
+                </div>
+                <p className="truncate text-xs text-neutral-500">{s.response_text}</p>
+              </div>
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-neutral-600">{s.voice}</span>
+              <Toggle on={s.enabled} onClick={() => toggle(s)} testid={`secret-toggle-${s.code}`} />
+              <button data-testid={`secret-edit-${s.code}`} onClick={() => (editId === s.id ? setEditId(null) : startEdit(s))} className="tactile shrink-0 rounded-sm border-2 border-neutral-700 bg-neutral-900 p-2 text-neutral-300 hover:text-[#ffb000]"><Pencil className="h-4 w-4" /></button>
+              <button data-testid={`secret-delete-${s.code}`} onClick={() => remove(s)} className="tactile shrink-0 rounded-sm border-2 border-red-700 bg-red-600/10 p-2 text-red-400 hover:bg-red-600/20"><Trash2 className="h-4 w-4" /></button>
             </div>
-            <span className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-neutral-600">
-              {s.voice}
-            </span>
-            <Toggle on={s.enabled} onClick={() => toggle(s)} testid={`secret-toggle-${s.code}`} />
-            <button
-              data-testid={`secret-delete-${s.code}`}
-              onClick={() => remove(s)}
-              className="tactile shrink-0 rounded-sm border-2 border-red-700 bg-red-600/10 p-2 text-red-400 hover:bg-red-600/20"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            {editId === s.id && (
+              <div className="space-y-3 border-t-2 border-neutral-800 p-4">
+                <input data-testid={`secret-edit-title-${s.code}`} value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} placeholder="title" className={sInput} />
+                <textarea data-testid={`secret-edit-text-${s.code}`} value={editForm.response_text} onChange={(e) => setEditForm({ ...editForm, response_text: e.target.value })} rows={3} className={sInput} />
+                <input data-testid={`secret-edit-clue-${s.code}`} value={editForm.clue || ""} onChange={(e) => setEditForm({ ...editForm, clue: e.target.value })} placeholder="story clue (optional)…" className={sInput} />
+                <BranchesEditor rows={editRows} setRows={setEditRows} idPrefix={`edit-${s.code}`} />
+                <div className="flex items-center gap-3">
+                  <select value={editForm.voice} onChange={(e) => setEditForm({ ...editForm, voice: e.target.value })} className={sInput + " max-w-[8rem]"}>
+                    {VOICES.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                  <button data-testid={`secret-save-${s.code}`} onClick={saveEdit} className="tactile flex items-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 px-4 py-2 font-mono text-xs font-bold uppercase tracking-widest crt-glow">
+                    <Save className="h-4 w-4" /> Save
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
