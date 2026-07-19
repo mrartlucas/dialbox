@@ -18,6 +18,7 @@ export const api = {
   fortune: (persona, question) =>
     http.post("/programs/fortune", { persona, question }).then((r) => r.data),
   magic8: (question) => http.post("/programs/magic8", { question }).then((r) => r.data),
+  knockknock: () => http.post("/programs/knockknock").then((r) => r.data),
   tts: (text, opts = {}) => http.post("/tts", { text, ...opts }).then((r) => r.data),
   getSecretCodes: () => http.get("/secret-codes").then((r) => r.data),
   createSecretCode: (data) => http.post("/secret-codes", data).then((r) => r.data),

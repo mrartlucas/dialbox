@@ -1,9 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Phone, PhoneOff, PhoneCall, Volume2, Bell } from "lucide-react";
+import { Phone, PhoneOff, PhoneCall, Volume2, Bell, Mic } from "lucide-react";
 import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
 import { api, playTone, playDialTone, playBeep } from "../lib/phoneApi";
+import { useSpeechInput } from "../lib/useSpeechInput";
 
 const STATUS = {
   onhook: "ON HOOK",
@@ -15,7 +16,23 @@ const STATUS = {
   message: "IN CALL",
   mindline_name: "MINDLINE",
   mindline_talk: "IN SESSION",
+  magic8_ask: "MAGIC 8",
+  magic8_answer: "MAGIC 8",
+  kk_whos_there: "KNOCK KNOCK",
+  kk_who: "KNOCK KNOCK",
+  kk_done: "KNOCK KNOCK",
+  exit_confirm: "END CALL?",
+  call_ended: "CALL ENDED",
   incoming: "RINGING",
+};
+
+// Interactive text modes that show the input + mic (typed or spoken).
+const INPUT_MODES = {
+  mindline_name: { testid: "mindline-input", ph: "state your name…" },
+  mindline_talk: { testid: "mindline-input", ph: "speak to Dr. Dialtone…" },
+  magic8_ask: { testid: "magic8-input", ph: "ask your question, then press 8…" },
+  kk_whos_there: { testid: "knock-input", ph: "say “who's there?”…" },
+  kk_who: { testid: "knock-input", ph: "say “… who?”…" },
 };
 
 const INTER_DIGIT_MS = 1300;
@@ -42,6 +59,7 @@ export default function PhoneSimulator() {
   const [playing, setPlaying] = useState(false);
   const [incoming, setIncoming] = useState(false);
   const [mindlineInput, setMindlineInput] = useState("");
+  const { supported: speechSupported, listening, listen, stop: stopListening } = useSpeechInput();
 
   const audioRef = useRef(null);
   const ringTimer = useRef(null);
@@ -54,6 +72,7 @@ export default function PhoneSimulator() {
   const hashPending = useRef(null);
   const incomingRef = useRef(false);
   const incomingSched = useRef(null);
+  const kkJoke = useRef(null);
 
   const offHook = mode !== "onhook";
 
@@ -194,8 +213,8 @@ export default function PhoneSimulator() {
     }
   }, [push, speak, setModeSafe]);
 
-  const submitMindlineName = useCallback(async () => {
-    const name = mindlineInput.trim();
+  const submitMindlineName = useCallback(async (explicit) => {
+    const name = (typeof explicit === "string" ? explicit : mindlineInput).trim();
     if (!name) return;
     setMindlineInput("");
     push("caller", name);
@@ -210,8 +229,8 @@ export default function PhoneSimulator() {
     }
   }, [mindlineInput, push, speak, setModeSafe]);
 
-  const sendMindline = useCallback(async () => {
-    const msg = mindlineInput.trim();
+  const sendMindline = useCallback(async (explicit) => {
+    const msg = (typeof explicit === "string" ? explicit : mindlineInput).trim();
     if (!msg) return;
     if (/\b(goodbye|good bye|hang up)\b/i.test(msg)) {
       setMindlineInput("");
@@ -290,8 +309,8 @@ export default function PhoneSimulator() {
     speak("Ask one question. Then press eight.", { voice: "onyx" });
   }, [push, speak, setModeSafe]);
 
-  const askMagic8 = useCallback(async () => {
-    const q = mindlineInput.trim();
+  const askMagic8 = useCallback(async (explicit) => {
+    const q = (typeof explicit === "string" ? explicit : mindlineInput).trim();
     setMindlineInput("");
     if (q) push("caller", q);
     setModeSafe("busy");
@@ -308,6 +327,65 @@ export default function PhoneSimulator() {
     }
   }, [mindlineInput, push, deliver, setModeSafe]);
 
+  // ---------------- Knock Knock ----------------
+  const enterKnockKnock = useCallback(async () => {
+    currentLine.current = "knockknock";
+    setMindlineInput("");
+    setModeSafe("busy");
+    push("system", "── KNOCK KNOCK ──");
+    try {
+      const j = await api.knockknock();
+      kkJoke.current = j;
+      setModeSafe("kk_whos_there");
+      push("program", "Knock, knock.");
+      deliver("Knock, knock.", { voice: j.voice }, "Say “who's there?” — type it or tap the mic.");
+    } catch (e) {
+      setModeSafe("kk_whos_there");
+      push("error", "// nobody's home (engine error)");
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const kkRespond = useCallback((explicit) => {
+    const said = (typeof explicit === "string" ? explicit : mindlineInput).trim();
+    setMindlineInput("");
+    if (said) push("caller", said);
+    const j = kkJoke.current;
+    if (!j) return;
+    setModeSafe("kk_who");
+    push("program", `${j.name}.`);
+    deliver(`${j.name}.`, { voice: j.voice }, `Say “${j.name} who?”`);
+  }, [mindlineInput, push, deliver, setModeSafe]);
+
+  const kkReveal = useCallback((explicit) => {
+    const said = (typeof explicit === "string" ? explicit : mindlineInput).trim();
+    setMindlineInput("");
+    if (said) push("caller", said);
+    const j = kkJoke.current;
+    if (!j) return;
+    setModeSafe("kk_done");
+    push("program", j.punchline);
+    push("system", "Press 5 for another joke · 0 for the main menu · or hang up.");
+    deliver(j.punchline, { voice: j.voice },
+      "Press five for another joke. Press zero for the main menu.");
+  }, [mindlineInput, push, deliver, setModeSafe]);
+
+  const submitCurrent = useCallback((val) => {
+    const m = modeRef.current;
+    if (m === "mindline_name") submitMindlineName(val);
+    else if (m === "mindline_talk") sendMindline(val);
+    else if (m === "magic8_ask") askMagic8(val);
+    else if (m === "kk_whos_there") kkRespond(val);
+    else if (m === "kk_who") kkReveal(val);
+  }, [submitMindlineName, sendMindline, askMagic8, kkRespond, kkReveal]);
+
+  const startMic = useCallback(() => {
+    if (listening) { stopListening(); return; }
+    listen((text) => {
+      setMindlineInput(text);
+      submitCurrent(text);
+    });
+  }, [listening, listen, stopListening, submitCurrent]);
+
   // ---------------- Universal exit system (## / Goodbye) ----------------
   const enterLine = useCallback((slug) => {
     if (slug === "fortune") {
@@ -317,10 +395,12 @@ export default function PhoneSimulator() {
       enterMindline();
     } else if (slug === "magic8") {
       enterMagic8();
+    } else if (slug === "knockknock") {
+      enterKnockKnock();
     } else {
       backToMenu();
     }
-  }, [loadFortunePersonas, enterMindline, enterMagic8, backToMenu, setModeSafe]);
+  }, [loadFortunePersonas, enterMindline, enterMagic8, enterKnockKnock, backToMenu, setModeSafe]);
 
   const triggerExitConfirm = useCallback(() => {
     stopAudio();
@@ -409,6 +489,9 @@ export default function PhoneSimulator() {
       } else if (res.type === "program" && res.interaction === "magic8") {
         push("program", `Connecting to ${res.name}...`);
         enterMagic8();
+      } else if (res.type === "program" && res.interaction === "knockknock") {
+        push("program", `Connecting to ${res.name}...`);
+        enterKnockKnock();
       } else if (res.type === "program" && res.has_personas) {
         currentLine.current = "fortune";
         setModeSafe("fortune_persona");
@@ -452,7 +535,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, push, speak, deliver, enterMindline, enterMagic8, setModeSafe]);
+  }, [personas, generateFortune, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, setModeSafe]);
 
   const lift = useCallback(() => {
     if (incoming) {
@@ -469,6 +552,10 @@ export default function PhoneSimulator() {
       push("program", `${label} is calling YOU. The line was scheduled to ring.`);
       if (sched && sched.interaction === "mindline") {
         enterMindline();
+      } else if (sched && sched.interaction === "knockknock") {
+        enterKnockKnock();
+      } else if (sched && sched.interaction === "magic8") {
+        enterMagic8();
       } else {
         setModeSafe("fortune_persona");
         loadFortunePersonas();
@@ -479,7 +566,7 @@ export default function PhoneSimulator() {
     setBuf("");
     setLines([]);
     openMenu();
-  }, [incoming, openMenu, push, loadFortunePersonas, enterMindline, setBuf, setModeSafe]);
+  }, [incoming, openMenu, push, loadFortunePersonas, enterMindline, enterKnockKnock, enterMagic8, setBuf, setModeSafe]);
 
   const chooseAnotherOracle = useCallback(() => {
     clearTimeout(digitTimer.current);
@@ -510,7 +597,8 @@ export default function PhoneSimulator() {
     const inCall = m === "result" || m === "secret" || m === "message";
     const inMindline = m === "mindline_name" || m === "mindline_talk";
     const inMagic8 = m === "magic8_ask" || m === "magic8_answer";
-    const inExperience = inCall || inMindline || inMagic8 || m === "fortune_persona";
+    const inKnock = m === "kk_whos_there" || m === "kk_who" || m === "kk_done";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || m === "fortune_persona";
 
     // ## (double pound) = universal exit; opens the End Call? confirmation.
     if (d === "#") {
@@ -552,6 +640,12 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (inKnock) {
+      if (m === "kk_done" && d === "5") enterKnockKnock();
+      else if (d === "0") backToMenu();
+      return;
+    }
+
     if (d === "*") {
       const b = bufferRef.current;
       if (b) {
@@ -587,7 +681,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, leaveMindline, askMagic8, enterMagic8, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, leaveMindline, askMagic8, enterMagic8, enterKnockKnock, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   const simulateScheduledCall = useCallback(() => {
     triggerScheduledRing({
@@ -689,30 +783,37 @@ export default function PhoneSimulator() {
           />
         )}
 
-        {/* MindLine + Magic 8 voice-input simulation (typed here; real device uses Whisper STT) */}
-        {(mode === "mindline_name" || mode === "mindline_talk" || mode === "magic8_ask") && (
+        {/* Interactive input — typed or spoken (Web Speech API mic). MindLine, Magic 8, Knock Knock. */}
+        {INPUT_MODES[mode] && (
           <form
             className="mb-4 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              if (mode === "mindline_name") submitMindlineName();
-              else if (mode === "magic8_ask") askMagic8();
-              else sendMindline();
+              submitCurrent();
             }}
           >
             <input
-              data-testid={mode === "magic8_ask" ? "magic8-input" : "mindline-input"}
+              data-testid={INPUT_MODES[mode].testid}
               value={mindlineInput}
               onChange={(e) => setMindlineInput(e.target.value)}
-              placeholder={
-                mode === "mindline_name"
-                  ? "state your name…"
-                  : mode === "magic8_ask"
-                  ? "ask your question, then press 8…"
-                  : "speak to Dr. Dialtone…"
-              }
+              placeholder={INPUT_MODES[mode].ph}
               className="flex-1 rounded-sm border-2 border-neutral-800 bg-black px-3 py-2 font-mono text-sm text-cyan-300 placeholder:text-neutral-700 focus:border-[#39ff14] focus:outline-none"
             />
+            {speechSupported && (
+              <button
+                type="button"
+                data-testid="mic-btn"
+                onClick={startMic}
+                title="Talk using your microphone"
+                className={`tactile shrink-0 rounded-sm border-2 px-4 ${
+                  listening
+                    ? "border-[#ffb000] bg-[#ffb000]/20 text-[#ffb000] amber-glow animate-pulse"
+                    : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-[#39ff14] hover:text-[#39ff14]"
+                }`}
+              >
+                <Mic className="h-4 w-4" />
+              </button>
+            )}
             <button
               type="submit"
               data-testid="mindline-send-btn"

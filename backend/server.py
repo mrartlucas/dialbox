@@ -170,6 +170,8 @@ async def seed():
         await db.programs.update_one({"slug": prog["slug"]},
                                      {"$set": content, "$setOnInsert": {"enabled": prog["enabled"]}},
                                      upsert=True)
+    seed_slugs = [p["slug"] for p in PROGRAMS]
+    await db.programs.delete_many({"slug": {"$nin": seed_slugs}})
     for i, (slug, p) in enumerate(PERSONAS.items()):
         doc = {
             "id": str(uuid.uuid4()), "slug": slug, "name": p["name"], "blurb": p["blurb"],
@@ -403,6 +405,65 @@ class Magic8Request(BaseModel):
 async def magic8(payload: Magic8Request):
     import random
     return {"answer": random.choice(MAGIC8_ANSWERS), "voice": "onyx"}
+
+
+# ----------------------------- Knock Knock -----------------------------
+# A knock-knock joke = {"name": <the "who's there" word>, "punchline": <the reveal>}.
+KNOCK_KNOCK_JOKES = [
+    {"name": "Lettuce", "punchline": "Lettuce in — it's freezing out here!"},
+    {"name": "Boo", "punchline": "Aw, don't cry — it's only a joke!"},
+    {"name": "Tank", "punchline": "You're welcome!"},
+    {"name": "Olive", "punchline": "Olive you, and I miss you!"},
+    {"name": "Cows go", "punchline": "No, silly — cows go MOO!"},
+    {"name": "Harry", "punchline": "Harry up, it's cold out here!"},
+    {"name": "Wooden shoe", "punchline": "Wooden shoe like to hear another joke?"},
+    {"name": "Dozen", "punchline": "Dozen anybody want to let me in?"},
+    {"name": "Needle", "punchline": "Needle little help getting through this door!"},
+    {"name": "Justin", "punchline": "Justin time for dinner!"},
+    {"name": "Iva", "punchline": "Iva sore hand from all this knocking!"},
+    {"name": "Cargo", "punchline": "Car go beep beep, vroom vroom!"},
+    {"name": "Alpaca", "punchline": "Alpaca the suitcase — you load the car!"},
+    {"name": "Figs", "punchline": "Figs the doorbell — it's been broken for weeks!"},
+    {"name": "Ice cream", "punchline": "Ice cream if you don't let me in!"},
+    {"name": "Water", "punchline": "Water you doing? Just let me in already!"},
+    {"name": "Amish", "punchline": "Aw, I'm-ish you too — it's been ages!"},
+    {"name": "Snow", "punchline": "Snow use — I forgot the punchline!"},
+]
+
+KNOCK_SYSTEM = (
+    "You are a family-friendly knock-knock joke writer. Respond with ONLY a compact JSON "
+    "object and nothing else, in the exact form: "
+    '{"name": "<the who-s-there word or phrase>", "punchline": "<the reveal, which plays on the name>"}. '
+    "The joke must be clean, clever, kid-safe, and original. No preamble, no markdown, no code fences."
+)
+
+
+@api_router.post("/programs/knockknock")
+async def knockknock():
+    import random
+    import json
+    if EMERGENT_LLM_KEY and random.random() < 0.25:
+        try:
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=str(uuid.uuid4()),
+                system_message=KNOCK_SYSTEM,
+            ).with_model("openai", "gpt-5.2")
+            raw = await chat.send_message(
+                UserMessage(text="Write one fresh, original, family-friendly knock-knock joke.")
+            )
+            s = str(raw).strip().strip("`").strip()
+            if s.lower().startswith("json"):
+                s = s[4:].strip()
+            data = json.loads(s)
+            name = str(data["name"]).strip()
+            punch = str(data["punchline"]).strip()
+            if name and punch:
+                return {"name": name, "punchline": punch, "voice": "fable", "ai": True}
+        except Exception:
+            logger.warning("Knock-knock AI generation failed; falling back to bank")
+    j = random.choice(KNOCK_KNOCK_JOKES)
+    return {"name": j["name"], "punchline": j["punchline"], "voice": "fable", "ai": False}
 
 
 @api_router.post("/programs/fortune")

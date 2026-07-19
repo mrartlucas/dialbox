@@ -75,3 +75,11 @@ dormant. Full multi-phase roadmap in the original brief.
 - **Bug fixed this iteration**: Magic 8 question input was not rendered (mode guard omitted `magic8_ask`). Fixed the conditional in PhoneSimulator.jsx (~L692) + form submit routes magic8_ask -> askMagic8.
 - Tested: backend 60/60 pytest (test_iteration4.py), frontend flows verified (screenshot + testing_agent). Report: /app/test_reports/iteration_4.json.
 - Next: build remaining DialBox Lines (Dial 4 Adventure, Smooth Operator, Chat Bae, Unknown Caller, Holiday Hotline, Prank Dialer); ElevenLabs TTS migration; editable ELIZA rules; Season Preview; split PhoneSimulator into hooks.
+
+## Update 2026-07-19 (Knock Knock Line + Laptop-mic voice input)
+- **Smooth Operator put ON HOLD**. Key 5 is now **Knock Knock** (slug `knockknock`, enabled, interaction `knockknock`). seed() now prunes orphan program slugs (`delete_many $nin seed_slugs`) so the old `pickup` doc is removed cleanly.
+- **Knock Knock flow**: dial 5 (or scheduled incoming) → "Knock, knock." → caller responds (forgiving: any typed/spoken input advances) → setup name delivered → caller responds → punchline → press 5 for another joke / 0 main menu / hang up. State modes: `kk_whos_there`, `kk_who`, `kk_done`. Voice: `fable`.
+- **Jokes**: backend `POST /api/programs/knockknock` -> {name, punchline, voice, ai}. **Mix** = curated 18-joke bank + ~25% AI-generated (GPT-5.2, kid-safe JSON prompt, falls back to bank on parse/error).
+- **Laptop-mic voice input** via browser Web Speech API (new hook `frontend/src/lib/useSpeechInput.js`). A mic button (`data-testid=mic-btn`) appears alongside the text input in **Knock Knock, MindLine, and Magic 8 Dial** modes; speaking fills + auto-submits the input. Web Speech is Chrome/Edge only (mic button hidden where unsupported); keypad + typing remain the fallback.
+- Verified: backend curl (menu key5=Knock Knock, dial 5 routes, endpoint returns jokes incl. AI), frontend screenshot (full knock flow to punchline + mic button rendered, no JS errors).
+- Files touched: server.py (knockknock endpoint + seed prune), seed_data.py (key-5 program), phoneApi.js (api.knockknock), PhoneSimulator.jsx (knock state machine, unified INPUT_MODES form, mic), new useSpeechInput.js.
