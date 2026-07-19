@@ -108,3 +108,13 @@ dormant. Full multi-phase roadmap in the original brief.
 ## Update 2026-07-19 (Push-to-talk mic + Knock Knock convo fix)
 - **Mic is now push-to-talk (hold)** instead of click-toggle, to mimic a real phone button. `useSpeechInput` uses continuous+interim recognition, accumulates the final transcript while held, and submits on release (onend). Button wired with onMouseDown/Up + onLeave + touch handlers; title "Hold to talk". (Real-speech behavior needs hands-on user confirmation; DOM/flow verified.)
 - **Knock Knock spoken play-by-play removed**: enterKnockKnock/kkRespond now use `speak()` (not `deliver()`), so it says only "Knock, knock." then the setup name (e.g. "Cargo.") and WAITS for the caller to answer naturally — no more "Say 'X who?'" operator prompts that broke the joke. Post-punchline options menu retained (audio nav). Verified via /api/tts interception: only ["Knock, knock.", "Cargo.", "Car go beep beep, vroom vroom!"] spoken.
+
+## Update 2026-07-19 (Hands-free: global Hold-to-Talk, voice-dial numbers, REC light)
+- **Single global "HOLD TO TALK" button** below the keypad (replaces the per-input mic). Push-to-talk everywhere the line is open. Mode-aware routing via `handleHoldTalk` (assigned to `holdTalkRef` so it survives useCallback ordering):
+  - text modes (mindline/magic8/knock) -> fills input + submits;
+  - `fortune_persona` -> if the phrase is 1-2 words matching a number it dials that oracle, else it's set as the whispered fortune question;
+  - everywhere else -> `parseVoiceCommand` maps spoken words ("one"..."nine", "zero/oh", "star", "pound", "menu/repeat"->0, "voicemail"->*, "goodbye/hang up"->##) to a keypad key and calls `onKey`.
+- **Voice-dial numbers** = 2nd option to pressing keys, so the whole box (menu, Fortune oracle pick, secret-number branches, Magic 8, Knock Knock "another", exit-confirm, call-ended) is playable hands-free.
+- **REC indicator** (red pulsing dot + "Rec" label) added to the handset indicator cluster; lights while `listening`.
+- Speech hook is continuous+interim, accumulates final transcript while held, submits on release (onend). Chrome/Edge only.
+- Verified: compile clean, hold-to-talk-btn + rec-indicator render, Knock Knock spoken flow fixed. NOTE: real-mic speech recognition + REC-light-on-hold need the user's hands-on confirmation (browser automation can't feed live audio).

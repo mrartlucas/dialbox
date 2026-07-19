@@ -40,6 +40,25 @@ const INPUT_MODES = {
 // MindLine server phase -> simulator mode.
 const PHASE_MODE = { await_name: "mindline_name", confirm: "mindline_confirm", talking: "mindline_talk" };
 
+// Spoken word -> keypad key, so callers can say a number instead of pressing it (hands-free).
+const WORD_TO_KEY = {
+  zero: "0", oh: "0", one: "1", won: "1", two: "2", to: "2", too: "2", three: "3",
+  four: "4", for: "4", five: "5", six: "6", seven: "7", eight: "8", ate: "8", nine: "9",
+};
+function parseVoiceCommand(text) {
+  const low = (text || "").toLowerCase();
+  const dm = low.match(/(\d)/);
+  if (dm) return dm[1];
+  if (/\b(star|asterisk)\b/.test(low)) return "*";
+  if (/\b(pound|hash|hashtag)\b/.test(low)) return "#";
+  if (/\b(menu|repeat)\b/.test(low)) return "0";
+  if (/\bvoice ?mail\b/.test(low)) return "*";
+  for (const w in WORD_TO_KEY) {
+    if (new RegExp(`\\b${w}\\b`).test(low)) return WORD_TO_KEY[w];
+  }
+  return null;
+}
+
 const INTER_DIGIT_MS = 1300;
 const OPERATOR_VOICE = "nova"; // spoken IVR menu / operator prompts
 const ORACLE_VOICE = "shimmer"; // spoken Fortune Caller intro
@@ -79,6 +98,7 @@ export default function PhoneSimulator() {
   const incomingSched = useRef(null);
   const kkJoke = useRef(null);
   const mlSession = useRef({ id: null, phase: null });
+  const holdTalkRef = useRef(null);
 
   const offHook = mode !== "onhook";
 
@@ -400,10 +420,9 @@ export default function PhoneSimulator() {
   const micDown = useCallback(() => {
     if (listening) return;
     listen((text) => {
-      setMindlineInput(text);
-      submitCurrent(text);
+      if (holdTalkRef.current) holdTalkRef.current(text);
     });
-  }, [listening, listen, submitCurrent]);
+  }, [listening, listen]);
 
   const micUp = useCallback(() => {
     stopListening();
@@ -706,6 +725,33 @@ export default function PhoneSimulator() {
     }, INTER_DIGIT_MS);
   }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
+  // Route a spoken phrase by mode: content in text modes, a whispered question in
+  // Fortune, or a dialed number/command everywhere else (hands-free operation).
+  const handleHoldTalk = useCallback((text) => {
+    const m = modeRef.current;
+    if (INPUT_MODES[m]) {
+      setMindlineInput(text);
+      submitCurrent(text);
+      return;
+    }
+    if (m === "fortune_persona") {
+      const words = text.trim().split(/\s+/);
+      const key = parseVoiceCommand(text);
+      if (key && words.length <= 2) onKey(key);
+      else setQuestion(text);
+      return;
+    }
+    if (/\b(good\s?bye|hang up)\b/i.test(text)) {
+      onKey("#");
+      setTimeout(() => onKey("#"), 130);
+      return;
+    }
+    const key = parseVoiceCommand(text);
+    if (key) onKey(key);
+  }, [submitCurrent, onKey]);
+  holdTalkRef.current = handleHoldTalk;
+
+
   const simulateScheduledCall = useCallback(() => {
     triggerScheduledRing({
       program_slug: "fortune",
@@ -775,6 +821,18 @@ export default function PhoneSimulator() {
               />
               <span className="font-mono text-[8px] uppercase tracking-widest text-neutral-600">Msg</span>
             </div>
+            <div className="flex flex-col items-center gap-1" data-testid="rec-indicator">
+              <span
+                className={`h-4 w-4 rounded-full border ${
+                  listening
+                    ? "border-red-500 bg-red-500 shadow-[0_0_10px_rgba(230,57,70,0.9)] animate-pulse"
+                    : "border-neutral-700 bg-neutral-900"
+                }`}
+              />
+              <span className={`font-mono text-[8px] uppercase tracking-widest ${listening ? "text-red-400" : "text-neutral-600"}`}>
+                Rec
+              </span>
+            </div>
             <div className="flex flex-col items-center gap-1">
               <Volume2 className={`h-4 w-4 ${playing ? "crt-glow" : "text-neutral-700"}`} />
               <span className="font-mono text-[8px] uppercase tracking-widest text-neutral-600">Spk</span>
@@ -822,25 +880,6 @@ export default function PhoneSimulator() {
               placeholder={INPUT_MODES[mode].ph}
               className="flex-1 rounded-sm border-2 border-neutral-800 bg-black px-3 py-2 font-mono text-sm text-cyan-300 placeholder:text-neutral-700 focus:border-[#39ff14] focus:outline-none"
             />
-            {speechSupported && (
-              <button
-                type="button"
-                data-testid="mic-btn"
-                onMouseDown={(e) => { e.preventDefault(); micDown(); }}
-                onMouseUp={micUp}
-                onMouseLeave={micUp}
-                onTouchStart={(e) => { e.preventDefault(); micDown(); }}
-                onTouchEnd={(e) => { e.preventDefault(); micUp(); }}
-                title="Hold to talk (push-to-talk)"
-                className={`tactile shrink-0 select-none rounded-sm border-2 px-4 ${
-                  listening
-                    ? "border-[#ffb000] bg-[#ffb000]/20 text-[#ffb000] amber-glow animate-pulse"
-                    : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-[#39ff14] hover:text-[#39ff14]"
-                }`}
-              >
-                <Mic className="h-4 w-4" />
-              </button>
-            )}
             <button
               type="submit"
               data-testid="mindline-send-btn"
@@ -854,9 +893,31 @@ export default function PhoneSimulator() {
         {/* Keypad */}
         <Keypad onPress={onKey} disabled={!offHook || mode === "busy"} />
 
+        {/* Global push-to-talk — hold to say a number/command or speak (hands-free) */}
+        {speechSupported && (
+          <button
+            type="button"
+            data-testid="hold-to-talk-btn"
+            onMouseDown={(e) => { e.preventDefault(); micDown(); }}
+            onMouseUp={micUp}
+            onMouseLeave={micUp}
+            onTouchStart={(e) => { e.preventDefault(); micDown(); }}
+            onTouchEnd={(e) => { e.preventDefault(); micUp(); }}
+            disabled={!offHook || mode === "busy"}
+            title="Hold to talk — say a number to dial, or speak your answer"
+            className={`tactile mt-3 flex w-full select-none items-center justify-center gap-2 rounded-sm border-2 py-3 font-mono text-xs font-bold uppercase tracking-widest disabled:opacity-40 ${
+              listening
+                ? "border-red-500 bg-red-500/15 text-red-400 animate-pulse"
+                : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-[#39ff14] hover:text-[#39ff14]"
+            }`}
+          >
+            <Mic className="h-4 w-4" /> {listening ? "Listening… release to send" : "Hold to Talk"}
+          </button>
+        )}
+
         {/* Hint */}
         <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-600">
-          {offHook ? "dial a number · press \u2731 to confirm a longer number" : "lift the handset to open the line"}
+          {offHook ? "dial or hold Talk to say a number · \u2731 confirms a longer number" : "lift the handset to open the line"}
         </p>
 
         {/* Hook control */}
