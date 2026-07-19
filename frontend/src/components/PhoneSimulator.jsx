@@ -428,6 +428,18 @@ export default function PhoneSimulator() {
     stopListening();
   }, [stopListening]);
 
+  // Safety: releasing the mouse/finger anywhere stops recording (not just on the button).
+  useEffect(() => {
+    if (!listening) return undefined;
+    const up = () => micUp();
+    window.addEventListener("mouseup", up);
+    window.addEventListener("touchend", up);
+    return () => {
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchend", up);
+    };
+  }, [listening, micUp]);
+
   // ---------------- Universal exit system (## / Goodbye) ----------------
   const enterLine = useCallback((slug) => {
     if (slug === "fortune") {
@@ -900,7 +912,6 @@ export default function PhoneSimulator() {
             data-testid="hold-to-talk-btn"
             onMouseDown={(e) => { e.preventDefault(); micDown(); }}
             onMouseUp={micUp}
-            onMouseLeave={micUp}
             onTouchStart={(e) => { e.preventDefault(); micDown(); }}
             onTouchEnd={(e) => { e.preventDefault(); micUp(); }}
             disabled={!offHook || mode === "busy"}

@@ -118,3 +118,9 @@ dormant. Full multi-phase roadmap in the original brief.
 - **REC indicator** (red pulsing dot + "Rec" label) added to the handset indicator cluster; lights while `listening`.
 - Speech hook is continuous+interim, accumulates final transcript while held, submits on release (onend). Chrome/Edge only.
 - Verified: compile clean, hold-to-talk-btn + rec-indicator render, Knock Knock spoken flow fixed. NOTE: real-mic speech recognition + REC-light-on-hold need the user's hands-on confirmation (browser automation can't feed live audio).
+
+## Update 2026-07-19 (Fix: push-to-talk ended instantly / REC blinked off)
+- BUG: holding the Talk button made REC blink once then turn off regardless of hold length, and no speech was captured.
+- ROOT CAUSE: Chrome's Web Speech `continuous` recognition auto-ends on the first silence gap, firing `onend` immediately -> `listening` went false and the session closed before capturing audio.
+- FIX (useSpeechInput.js): while `holdingRef` is true, `onend` builds a fresh recogniser and restarts it, so it keeps listening for the whole hold; the accumulated final transcript is submitted only on release (stop). Removed `onMouseLeave` (spurious stop) and added a window-level mouseup/touchend safety so releasing anywhere stops.
+- Verified via automation: label stays "LISTENING… RELEASE TO SEND" for the full hold (was dropping instantly), so `listening`/REC now persists. Real speech capture still needs user hands-on confirmation.
