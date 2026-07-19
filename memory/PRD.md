@@ -99,3 +99,8 @@ dormant. Full multi-phase roadmap in the original brief.
 - Frontend: in-call CRT shows "💥 You broke Doctor Dialtone in N turns!" + top-5 board on crash; Config Panel has a new **Meltdowns** tab (Trophy icon) listing the leaderboard.
 - Verified: live curl (Kevin & Dana recorded at 4 turns), Config Panel tab renders board. Files: mindline.py, server.py, phoneApi.js, PhoneSimulator.jsx, ConfigPanel.jsx.
 - TELEPHONY PIVOT NOTE (user exploring Cell2Jack): recommended path is Twilio Programmable Voice — give DialBox a real phone number + TwiML webhooks that reuse existing program logic + <Gather> for DTMF; avoids building a CallKit/Android-telecom app. Not yet built (needs Twilio account/number, paid).
+
+## Update 2026-07-19 (Bugfix: spoken main menu reads all options)
+- BUG: on lifting the handset the greeting only spoke a generic "press a number to get started" — but DialBox is audio-only (landline, no screen) so every option must be read aloud.
+- FIX: `openMenu()` in PhoneSimulator.jsx now builds `spokenMenu` = greeting + "For <name>, press <key>." for each enabled (non-coming_soon) program + "press star" (voicemail) + "press zero" (repeat), and TTS-speaks it. Coming-soon lines excluded.
+- Verified by testing_agent (iteration_5.json): captured /api/tts payload enumerates Fortune Caller/1, MindLine/3, Knock Knock/5, Magic 8 Dial/8, star, zero; 0 repeats menu; 1 routes to Fortune. 100% frontend, no issues.
