@@ -21,18 +21,18 @@ function App() {
             </div>
             <div>
               <h1 className="font-mono text-xl font-bold tracking-tighter">
-                THE LINE <span className="text-neutral-600">//</span>{" "}
-                <span className="amber-glow">revival</span>
+                DIALBOX <span className="text-neutral-600">//</span>{" "}
+                <span className="amber-glow">network</span>
               </h1>
               <p className="font-mono text-[10px] uppercase tracking-[0.35em] text-neutral-500">
-                old-school phone platform · dev simulator
+                the dialbox network · dev simulator
               </p>
             </div>
           </div>
           <div className="hidden items-center gap-2 sm:flex">
             <Radio className="h-4 w-4 crt-glow animate-pulse" />
             <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-neutral-400">
-              standalone mode · line live
+              standalone mode · network live
             </span>
           </div>
         </div>

@@ -160,7 +160,16 @@ async def active_personas():
 # ----------------------------- Seeding -----------------------------
 async def seed():
     for prog in PROGRAMS:
-        await db.programs.update_one({"slug": prog["slug"]}, {"$setOnInsert": prog}, upsert=True)
+        content = {
+            "name": prog["name"], "description": prog["description"], "category": prog["category"],
+            "menu_key": prog["menu_key"], "order": prog["order"],
+            "coming_soon": prog.get("coming_soon", False),
+            "has_personas": prog.get("has_personas", False),
+            "interaction": prog.get("interaction", "menu"),
+        }
+        await db.programs.update_one({"slug": prog["slug"]},
+                                     {"$set": content, "$setOnInsert": {"enabled": prog["enabled"]}},
+                                     upsert=True)
     for i, (slug, p) in enumerate(PERSONAS.items()):
         doc = {
             "id": str(uuid.uuid4()), "slug": slug, "name": p["name"], "blurb": p["blurb"],
@@ -251,14 +260,17 @@ async def update_program(slug: str, payload: ProgramUpdate):
 
 @api_router.get("/menu")
 async def get_menu():
-    """Enabled programs, ordered by menu key, as an IVR menu."""
-    progs = await db.programs.find({"enabled": True}, {"_id": 0}).sort("menu_key", 1).to_list(100)
+    """Full DialBox Network menu — all Lines, ordered by keypad number."""
+    progs = await db.programs.find({}, {"_id": 0}).sort("order", 1).to_list(100)
     return {
-        "greeting": "You've reached the line. The connection crackles to life...",
+        "greeting": "Welcome to DialBox. Your direct line to fortunes, adventures, strange callers, and more.",
         "items": [
-            {"key": p["menu_key"], "name": p["name"], "slug": p["slug"], "category": p["category"]}
+            {"key": p["menu_key"], "name": p["name"], "slug": p["slug"],
+             "category": p["category"], "description": p.get("description", ""),
+             "coming_soon": p.get("coming_soon", False)}
             for p in progs
         ],
+        "repeat_key": "0",
         "voicemail_key": "*",
     }
 
@@ -335,12 +347,12 @@ async def dial(payload: DialRequest):
     if digits == "*":
         return {"type": "voicemail", "message": "You have no new messages. The message light is dark."}
 
-    # Enabled program on this menu key?
-    prog = await db.programs.find_one({"menu_key": digits, "enabled": True}, {"_id": 0})
+    # Program on this menu key (single-digit)?
+    prog = await db.programs.find_one({"menu_key": digits}, {"_id": 0})
     if prog:
-        if prog.get("coming_soon"):
+        if prog.get("coming_soon") or not prog.get("enabled", False):
             return {"type": "coming_soon", "name": prog["name"],
-                    "message": f"{prog['name']} is coming soon on this line."}
+                    "message": f"{prog['name']} is coming soon on the DialBox Network."}
         payload_out = {"type": "program", "slug": prog["slug"], "name": prog["name"],
                        "has_personas": prog.get("has_personas", False),
                        "interaction": prog.get("interaction", "menu")}
@@ -371,6 +383,26 @@ async def dial(payload: DialRequest):
                 "voice": "nova", "branches": None, "clue": None}
 
     return {"type": "invalid", "message": "We're sorry. The number you have dialed is not in service. *click*"}
+
+
+MAGIC8_ANSWERS = [
+    "It is certain.", "It is decidedly so.", "Without a doubt.", "Yes, definitely.",
+    "You may rely on it.", "As I see it, yes.", "Most likely.", "Outlook good.",
+    "Yes.", "Signs point to yes.", "Reply hazy, try again.", "Ask again later.",
+    "Better not tell you now.", "Cannot predict now.", "Concentrate and ask again.",
+    "Don't count on it.", "My reply is no.", "My sources say no.",
+    "Outlook not so good.", "Very doubtful.",
+]
+
+
+class Magic8Request(BaseModel):
+    question: Optional[str] = None
+
+
+@api_router.post("/programs/magic8")
+async def magic8(payload: Magic8Request):
+    import random
+    return {"answer": random.choice(MAGIC8_ANSWERS), "voice": "onyx"}
 
 
 @api_router.post("/programs/fortune")

@@ -50,6 +50,8 @@ export default function PhoneSimulator() {
   const modeRef = useRef("onhook");
   const lastSpoken = useRef(null);
   const currentEgg = useRef(null);
+  const currentLine = useRef(null);
+  const hashPending = useRef(null);
   const incomingRef = useRef(false);
   const incomingSched = useRef(null);
 
@@ -125,22 +127,25 @@ export default function PhoneSimulator() {
 
   const openMenu = useCallback(async () => {
     playDialTone();
-    push("system", "*click* — the line opens.");
+    currentEgg.current = null;
+    push("system", "*click* — DialBox connects.");
     try {
       const menu = await api.getMenu();
       push("line", menu.greeting);
-      push("system", "── DIAL MENU ──");
-      menu.items.forEach((it) => push("line", `  ${it.key}  ${it.name}`));
-      push("line", `  ${menu.voicemail_key}  Voicemail`);
-      push("system", "Dial a number to select. For a secret number, dial it then press \u2731 to confirm.");
-      push("system", "Dial 0 at any time to return to this menu.");
-      const spoken =
-        `${menu.greeting} ` +
-        menu.items.map((it) => `For ${it.name}, dial ${it.key}. `).join("") +
-        "For voicemail, press star. You can dial 0 at any time to return to this menu.";
-      speak(spoken, { voice: OPERATOR_VOICE });
+      push("system", "── DIALBOX NETWORK ──");
+      menu.items.forEach((it) =>
+        push("line", `  ${it.key}  ${it.name}${it.coming_soon ? "  (soon)" : ""} — ${it.description}`)
+      );
+      push("line", "  0  Repeat the menu");
+      push("line", "  *  Voicemail");
+      push("system", "Press a number to begin. Dial ✱ for voicemail, 0 to repeat.");
+      speak(
+        "Welcome to DialBox. Your direct line to fortunes, adventures, strange callers and more. " +
+          "Press a number to get started. Press zero to repeat the menu.",
+        { voice: OPERATOR_VOICE }
+      );
     } catch (e) {
-      push("error", "// could not reach the exchange");
+      push("error", "// could not reach the DialBox Network");
     }
   }, [push, speak]);
 
@@ -170,6 +175,7 @@ export default function PhoneSimulator() {
 
   // ---------------- MindLine (Dr. Dialtone) ----------------
   const enterMindline = useCallback(async () => {
+    currentLine.current = "therapy";
     setModeSafe("mindline_name");
     setMindlineInput("");
     try {
@@ -207,6 +213,11 @@ export default function PhoneSimulator() {
   const sendMindline = useCallback(async () => {
     const msg = mindlineInput.trim();
     if (!msg) return;
+    if (/\b(goodbye|good bye|hang up)\b/i.test(msg)) {
+      setMindlineInput("");
+      triggerExitConfirm();
+      return;
+    }
     setMindlineInput("");
     push("caller", msg);
     try {
@@ -267,6 +278,68 @@ export default function PhoneSimulator() {
     } catch (e) {
       push("error", "// voicemail unavailable");
     }
+  }, [push, speak, setModeSafe]);
+
+  // ---------------- Magic 8 Dial ----------------
+  const enterMagic8 = useCallback(() => {
+    currentLine.current = "magic8";
+    setModeSafe("magic8_ask");
+    setMindlineInput("");
+    push("system", "── MAGIC 8 DIAL ──");
+    push("program", "Ask one question. Then press 8.");
+    speak("Ask one question. Then press eight.", { voice: "onyx" });
+  }, [push, speak, setModeSafe]);
+
+  const askMagic8 = useCallback(async () => {
+    const q = mindlineInput.trim();
+    setMindlineInput("");
+    if (q) push("caller", q);
+    setModeSafe("busy");
+    try {
+      const r = await api.magic8(q);
+      push("program", `\ud83c\udfb1 ${r.answer}`);
+      setModeSafe("magic8_answer");
+      push("system", "Press 8 to ask again · \u2731 to hear it again · 0 for the main menu.");
+      deliver(r.answer, { voice: r.voice },
+        "Press eight to ask again. Press star to hear it again. Press zero for the main menu.");
+    } catch (e) {
+      setModeSafe("magic8_answer");
+      push("error", "// the 8-ball is cloudy");
+    }
+  }, [mindlineInput, push, deliver, setModeSafe]);
+
+  // ---------------- Universal exit system (## / Goodbye) ----------------
+  const enterLine = useCallback((slug) => {
+    if (slug === "fortune") {
+      setModeSafe("fortune_persona");
+      loadFortunePersonas();
+    } else if (slug === "therapy") {
+      enterMindline();
+    } else if (slug === "magic8") {
+      enterMagic8();
+    } else {
+      backToMenu();
+    }
+  }, [loadFortunePersonas, enterMindline, enterMagic8, backToMenu, setModeSafe]);
+
+  const triggerExitConfirm = useCallback(() => {
+    stopAudio();
+    clearTimeout(digitTimer.current);
+    setModeSafe("exit_confirm");
+    push("system", "── END CALL? ──");
+    push("program", "Are you sure you want to end this call? Press 1 to continue, press 2 to end.");
+    speak("Are you sure you want to end this call? Press 1 to continue. Press 2 to end.",
+      { voice: OPERATOR_VOICE });
+  }, [push, speak, setModeSafe]);
+
+  const callEnded = useCallback(() => {
+    stopAudio();
+    setModeSafe("call_ended");
+    push("program", "Call ended.");
+    push("system", "1 try again · 2 explore this Line · 3 the DialBox Network · 4 end session.");
+    speak("Call ended. Press 1 to try this experience again. Press 2 to explore more from this Line. "
+      + "Press 3 to return to the DialBox Network. Press 4 to end your DialBox session.",
+      { voice: OPERATOR_VOICE });
   }, [push, speak, setModeSafe]);
 
   // ---------------- Scheduled incoming calls ----------------
@@ -333,7 +406,11 @@ export default function PhoneSimulator() {
       if (res.type === "program" && res.interaction === "mindline") {
         push("program", `Connecting to ${res.name}...`);
         enterMindline();
+      } else if (res.type === "program" && res.interaction === "magic8") {
+        push("program", `Connecting to ${res.name}...`);
+        enterMagic8();
       } else if (res.type === "program" && res.has_personas) {
+        currentLine.current = "fortune";
         setModeSafe("fortune_persona");
         setPersonas(res.personas || []);
         setProgram(res);
@@ -375,7 +452,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, push, speak, deliver, enterMindline, setModeSafe]);
+  }, [personas, generateFortune, push, speak, deliver, enterMindline, enterMagic8, setModeSafe]);
 
   const lift = useCallback(() => {
     if (incoming) {
@@ -432,9 +509,46 @@ export default function PhoneSimulator() {
     const m = modeRef.current;
     const inCall = m === "result" || m === "secret" || m === "message";
     const inMindline = m === "mindline_name" || m === "mindline_talk";
+    const inMagic8 = m === "magic8_ask" || m === "magic8_answer";
+    const inExperience = inCall || inMindline || inMagic8 || m === "fortune_persona";
+
+    // ## (double pound) = universal exit; opens the End Call? confirmation.
+    if (d === "#") {
+      if (hashPending.current) {
+        clearTimeout(hashPending.current);
+        hashPending.current = null;
+        if (inExperience) triggerExitConfirm();
+        return;
+      }
+      hashPending.current = setTimeout(() => {
+        hashPending.current = null;
+        if (modeRef.current === "result") chooseAnotherOracle(); // single # = another oracle
+      }, 650);
+      return;
+    }
+
+    // Exit confirmation flow
+    if (m === "exit_confirm") {
+      if (d === "1") enterLine(currentLine.current);
+      else if (d === "2") callEnded();
+      return;
+    }
+    if (m === "call_ended") {
+      if (d === "1") enterLine(currentLine.current);
+      else if (d === "2") currentLine.current === "fortune" ? enterLine("fortune") : backToMenu();
+      else if (d === "3") backToMenu();
+      else if (d === "4") resetLine();
+      return;
+    }
 
     if (inMindline) {
-      if (d === "0") leaveMindline(); // use the on-screen input to talk; 0 hangs up the session
+      if (d === "0") leaveMindline(); // type into the on-screen input to talk; 0 ends the session
+      return;
+    }
+
+    if (inMagic8) {
+      if (d === "8") m === "magic8_ask" ? askMagic8() : enterMagic8();
+      else if (d === "0") backToMenu();
       return;
     }
 
@@ -451,14 +565,9 @@ export default function PhoneSimulator() {
       return;
     }
 
-    if (d === "#") {
-      // speak with another oracle (only meaningful after a fortune)
-      if (m === "result") chooseAnotherOracle();
-      return;
-    }
-
-    if (d === "0" && !bufferRef.current && (inCall || m === "fortune_persona")) {
-      backToMenu();
+    if (d === "0" && !bufferRef.current) {
+      if (m === "dialtone") openMenu(); // repeat the menu
+      else if (inCall || m === "fortune_persona") backToMenu();
       return;
     }
 
@@ -478,7 +587,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, leaveMindline, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, leaveMindline, askMagic8, enterMagic8, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   const simulateScheduledCall = useCallback(() => {
     triggerScheduledRing({
@@ -528,9 +637,9 @@ export default function PhoneSimulator() {
               )}
             </motion.div>
             <div>
-              <p className="font-mono text-lg font-bold tracking-tight">THE LINE</p>
+              <p className="font-mono text-lg font-bold tracking-tight">DIALBOX</p>
               <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-                model no. 1 · revival
+                model no. 1 · network
               </p>
             </div>
           </div>
