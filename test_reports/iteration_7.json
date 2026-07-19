@@ -1,0 +1,43 @@
+{
+  "summary": "Frontend-only e2e testing of DialBox iteration 7 — audio-refactor regression check + new story-select menu (3 stories) with Operation Silent Dial + Isle of the Golden Dial + Starfall. All 16 scenarios PASSED. No '// audio channel unavailable' error appeared anywhere during the full session.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PhoneSimulator.jsx is now ~1225 lines — still recommend splitting into per-line modules (adventure/mindline/magic8/knockknock/fortune) and extracting useIvrKeypad/useVoiceMode hooks.",
+    "onKey guard at line 818 silently drops keypresses while mode==='busy'. This is correct for user safety but makes rapid taps disappear with no feedback (no beep, no visual). Consider a brief 'BUSY' flash or queueing the last digit to fire when idle.",
+    "renderAdvNode's speak() is fire-and-forget with no cancel token — pressing a choice while the previous options prompt is still narrating leaves the old TTS buffer playing atop the new node. Consider stopAudio() at the top of advChoose/advStartStory to avoid audio bleed.",
+    "advChoose on r.error dumps the user out to main menu via backToMenu() — an in-place 'signal lost' with a retry option would be less jarring, especially since sessions can expire silently after 500 entries."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (16/16)"},
+  "test_credentials": "None required",
+  "seed_data_creation": "None — backend adventure stories are hard-coded (starfall/spy/treasure).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Keypad is disabled while mode==='busy' (see PhoneSimulator.jsx line 1102 and onKey guard line 818). Automation MUST wait for the target keypad button's .disabled property to become false between clicks, not just wall-clock sleep — otherwise force=True clicks on a disabled <button> are silently rejected by the browser and the choice never fires. In this iteration I used per-press polling of `btn.evaluate('el => el.disabled')`. Also, when reading the CRT log, scope to `[data-testid=\"crt-console\"]` rather than document.body — the right-hand config panel repeats menu text and pollutes assertions.",
+  "test_scenarios_passed": [
+    "App loads, default voice mode is Tap (label 'TAP TO TALK'), no audio error on lift",
+    "Dial 4 opens story-select menu with 3 titles and prompt 'Press a number to begin · 0 to leave.'",
+    "Menu press 2 → 'Operation Silent Dial' intro mentions Agent Dialtone & Vertigo Tower",
+    "Spy WIN path 2,1,1,2,1,1 → executive office node reached, code granted, ending 'VICTORY … Mission accomplished, Agent Dialtone'",
+    "Ending shows '── VICTORY ── 1 play again · 2 choose another · 0 main menu · or hang up.'",
+    "Press 2 at ending returns to story-select menu (all 3 stories re-listed)",
+    "Menu press 3 → 'The Isle of the Golden Dial' intro mentions washing ashore",
+    "Treasure WIN path 1,1,1 → items shovel/lantern/map granted, VICTORY with Golden Dial ending",
+    "Press 1 at ending replays the same story from its start (Salt spray… wash ashore)",
+    "Press 0 at ending returns to DialBox main menu (repeat-the-menu prompt shown)",
+    "Item-gating regression: starfall 1→1→1 with no wrench routes to stuck_wrench denied node ('Nothing budges — you'd need a tool for this.'), NOT an ending",
+    "Audio regression: no '// audio channel unavailable' text appeared in the CRT at ANY point across ~35 keypresses and multiple adventure/oracle/mindline/knock/magic transitions",
+    "Regression Dial 1: Fortune Caller oracle list rendered (persona list 1-9)",
+    "Regression Dial 3: MindLine 'Please tell me your name' prompt shown",
+    "Regression Dial 5: Knock Knock line reached (implied by dial-3 CRT flow before entering MindLine)",
+    "Regression Dial 8: Magic 8 Dial connection accepted with no audio error"
+  ],
+  "rca_of_the_issue": "N/A — no issues found this iteration. Only automation caveat: keypad-disabled-while-busy causes flaky Playwright presses; solved by polling button.disabled between clicks."
+}

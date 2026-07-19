@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Phone, PhoneOff, PhoneCall, Volume2, Bell, Mic } from "lucide-react";
 import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
-import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect } from "../lib/phoneApi";
+import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect, playWin, playLose, resumeAudioCtx, SILENT_CLIP } from "../lib/phoneApi";
 import { useSpeechInput } from "../lib/useSpeechInput";
 
 const STATUS = {
@@ -24,6 +24,7 @@ const STATUS = {
   kk_done: "KNOCK KNOCK",
   adventure_play: "ADVENTURE",
   adventure_end: "THE END",
+  adventure_select: "PICK A TALE",
   exit_confirm: "END CALL?",
   call_ended: "CALL ENDED",
   incoming: "RINGING",
@@ -119,6 +120,7 @@ export default function PhoneSimulator() {
   const kkTold = useRef([]);
   const mlSession = useRef({ id: null, phase: null });
   const advSession = useRef({ id: null, node: null });
+  const advStories = useRef([]);
   const holdTalkRef = useRef(null);
 
   const offHook = mode !== "onhook";
@@ -139,29 +141,57 @@ export default function PhoneSimulator() {
 
   const stopAudio = () => {
     if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
+      try { audioRef.current.pause(); } catch (e) {}
+      audioRef.current.onended = null;
     }
     setPlaying(false);
   };
+
+  // One persistent <audio> element, reused for every TTS clip. Unlocking it during a
+  // user gesture (lift handset) keeps mobile/iOS playback working after async TTS fetches.
+  const getPlayer = useCallback(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.preload = "auto";
+    }
+    return audioRef.current;
+  }, []);
+
+  const unlockAudio = useCallback(() => {
+    resumeAudioCtx();
+    try {
+      const p = getPlayer();
+      p.muted = true;
+      p.src = SILENT_CLIP;
+      const pr = p.play();
+      if (pr && pr.then) {
+        pr.then(() => { try { p.pause(); } catch (e) {} p.muted = false; })
+          .catch(() => { p.muted = false; });
+      } else {
+        p.muted = false;
+      }
+    } catch (e) {}
+  }, [getPlayer]);
 
   const speak = useCallback(async (text, opts, onDone) => {
     try {
       setPlaying(true);
       const res = await api.tts(sayable(text), opts);
-      stopAudio();
-      const audio = new Audio(`data:audio/mp3;base64,${res.audio_base64}`);
-      audioRef.current = audio;
-      audio.onended = () => {
+      const p = getPlayer();
+      try { p.pause(); } catch (e) {}
+      p.onended = null;
+      p.muted = false;
+      p.src = `data:audio/mp3;base64,${res.audio_base64}`;
+      p.onended = () => {
         setPlaying(false);
         if (onDone) onDone();
       };
-      await audio.play();
+      await p.play();
     } catch (e) {
       setPlaying(false);
       push("error", "// audio channel unavailable");
     }
-  }, [push]);
+  }, [push, getPlayer]);
 
   // Speak a program/egg line, remember it for replay, then read the options prompt.
   const deliver = useCallback((text, opts, optionsText) => {
@@ -248,6 +278,8 @@ export default function PhoneSimulator() {
     else if (name === "reboot") playReboot();
     else if (name === "disconnect") playDisconnect();
     else if (name === "startup") playStartup();
+    else if (name === "win") playWin();
+    else if (name === "lose") playLose();
   }, []);
 
   const enterMindline = useCallback(async () => {
@@ -447,16 +479,12 @@ export default function PhoneSimulator() {
       push("system", `🎒 you carry: ${node.inventory.join(", ")}`);
     if (node.ended) {
       setModeSafe("adventure_end");
+      playSfx(node.ending === "win" ? "win" : "lose");
       const tag = node.ending === "win" ? "VICTORY" : "THE END";
-      push("system", `── ${tag} ── Press 1 to play again · 0 for the main menu · or hang up.`);
-      lastSpoken.current = {
-        text: node.text,
-        opts: { voice: node.voice },
-        optionsText: "That is the end of this adventure. Press one to play again, or press zero for the main menu.",
-      };
-      speak(node.text, { voice: node.voice }, () =>
-        speak("That is the end of this adventure. Press one to play again, or press zero for the main menu.",
-          { voice: OPERATOR_VOICE }));
+      const endOpts = "That is the end of this adventure. Press one to play it again, press two to choose another adventure, or press zero for the main menu.";
+      push("system", `── ${tag} ── 1 play again · 2 choose another · 0 main menu · or hang up.`);
+      lastSpoken.current = { text: node.text, opts: { voice: node.voice }, optionsText: endOpts };
+      speak(node.text, { voice: node.voice }, () => speak(endOpts, { voice: OPERATOR_VOICE }));
       return;
     }
     (node.choices || []).forEach((c) => push("line", `  ${c.key}  ${c.label}`));
@@ -466,15 +494,38 @@ export default function PhoneSimulator() {
     const optionsText = choicesText + " Or press zero to leave the adventure.";
     lastSpoken.current = { text: node.text, opts: { voice: node.voice }, optionsText };
     speak(node.text, { voice: node.voice }, () => speak(optionsText, { voice: OPERATOR_VOICE }));
-  }, [push, speak, setModeSafe]);
+  }, [push, speak, setModeSafe, playSfx]);
 
+  // Show the catalog of adventures to choose from.
   const enterAdventure = useCallback(async () => {
     currentLine.current = "adventure";
     setModeSafe("busy");
     push("system", "── DIAL 4 ADVENTURE ──");
     try {
-      const r = await api.adventureStart("starfall");
-      advSession.current = { id: r.session_id, node: null };
+      const stories = await api.adventureStories();
+      advStories.current = stories;
+      push("program", "Choose your adventure.");
+      stories.forEach((s, i) => push("line", `  ${i + 1}  ${s.title}`));
+      push("system", "Press a number to begin · 0 to leave.");
+      setModeSafe("adventure_select");
+      const spoken =
+        "Choose your adventure. " +
+        stories.map((s, i) => `For ${s.title}, press ${i + 1}.`).join(" ") +
+        " Or press zero to leave.";
+      lastSpoken.current = { text: "Choose your adventure.", opts: { voice: OPERATOR_VOICE }, optionsText: spoken };
+      speak(spoken, { voice: OPERATOR_VOICE });
+    } catch (e) {
+      setModeSafe("message");
+      push("error", "// the adventure catalog is down");
+      push("system", "Dial 0 for the main menu, or hang up.");
+    }
+  }, [push, speak, setModeSafe]);
+
+  const advStartStory = useCallback(async (slug) => {
+    setModeSafe("busy");
+    try {
+      const r = await api.adventureStart(slug);
+      advSession.current = { id: r.session_id, node: null, slug };
       push("program", `\u25b6 ${r.title}`);
       renderAdvNode(r.node);
     } catch (e) {
@@ -711,6 +762,7 @@ export default function PhoneSimulator() {
   }, [personas, generateFortune, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, setModeSafe]);
 
   const lift = useCallback(() => {
+    unlockAudio(); // unlock mobile/iOS audio within this user gesture
     if (incoming) {
       clearTimeout(ringTimer.current);
       setIncoming(false);
@@ -739,7 +791,7 @@ export default function PhoneSimulator() {
     setBuf("");
     setLines([]);
     openMenu();
-  }, [incoming, openMenu, push, loadFortunePersonas, enterMindline, enterKnockKnock, enterMagic8, setBuf, setModeSafe]);
+  }, [incoming, openMenu, push, loadFortunePersonas, enterMindline, enterKnockKnock, enterMagic8, setBuf, setModeSafe, unlockAudio]);
 
   const chooseAnotherOracle = useCallback(() => {
     clearTimeout(digitTimer.current);
@@ -771,7 +823,7 @@ export default function PhoneSimulator() {
     const inMindline = m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk";
     const inMagic8 = m === "magic8_ask" || m === "magic8_answer";
     const inKnock = m === "kk_whos_there" || m === "kk_who" || m === "kk_done";
-    const inAdventure = m === "adventure_play" || m === "adventure_end";
+    const inAdventure = m === "adventure_play" || m === "adventure_end" || m === "adventure_select";
     const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || m === "fortune_persona";
 
     // ## (double pound) = universal exit; opens the End Call? confirmation.
@@ -820,6 +872,16 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (m === "adventure_select") {
+      if (d === "0") backToMenu();
+      else if (d === "*") replayLast();
+      else {
+        const idx = parseInt(d, 10) - 1;
+        const s = advStories.current && advStories.current[idx];
+        if (s) advStartStory(s.slug);
+      }
+      return;
+    }
     if (m === "adventure_play") {
       if (d === "0") backToMenu();
       else if (d === "*") replayLast();
@@ -827,7 +889,8 @@ export default function PhoneSimulator() {
       return;
     }
     if (m === "adventure_end") {
-      if (d === "1") enterAdventure();
+      if (d === "1") advStartStory(advSession.current.slug || "starfall");
+      else if (d === "2") enterAdventure();
       else if (d === "*") replayLast();
       else if (d === "0") backToMenu();
       return;
@@ -868,7 +931,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, enterAdventure, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).

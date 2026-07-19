@@ -38,11 +38,24 @@ export const api = {
     http.post("/adventure/start", { story }).then((r) => r.data),
   adventureChoose: (session_id, choice) =>
     http.post("/adventure/choose", { session_id, choice }).then((r) => r.data),
+  adventureStories: () => http.get("/adventure/stories").then((r) => r.data),
   getVoicemails: () => http.get("/voicemails").then((r) => r.data),
   createVoicemail: (program_slug) => http.post("/voicemails", { program_slug }).then((r) => r.data),
   markVoicemail: (id) => http.patch(`/voicemails/${id}`).then((r) => r.data),
   deleteVoicemail: (id) => http.delete(`/voicemails/${id}`).then((r) => r.data),
 };
+
+// Tiny silent clip used to unlock HTMLAudio playback on a user gesture (iOS/Safari).
+export const SILENT_CLIP =
+  "data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA";
+
+// Resume the WebAudio context if the browser suspended it (autoplay policy).
+export function resumeAudioCtx() {
+  try {
+    const c = ctx();
+    if (c.state === "suspended") c.resume();
+  } catch (e) {}
+}
 
 // Simple WebAudio DTMF tones + dial tone
 let audioCtx = null;
@@ -182,6 +195,50 @@ export function playDisconnect() {
       o.connect(g);
       o.start();
       o.stop(c.currentTime + 0.5);
+    });
+  } catch (e) {}
+}
+
+// Triumphant rising arpeggio for an adventure WIN ending.
+export function playWin() {
+  try {
+    const c = ctx();
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5];
+    notes.forEach((f, i) => {
+      const g = c.createGain();
+      const t = c.currentTime + i * 0.13;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.09, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      g.connect(c.destination);
+      const o = c.createOscillator();
+      o.type = "triangle";
+      o.frequency.value = f;
+      o.connect(g);
+      o.start(t);
+      o.stop(t + 0.4);
+    });
+  } catch (e) {}
+}
+
+// Somber descending tones for an adventure LOSE ending.
+export function playLose() {
+  try {
+    const c = ctx();
+    const notes = [392.0, 329.63, 261.63, 196.0];
+    notes.forEach((f, i) => {
+      const g = c.createGain();
+      const t = c.currentTime + i * 0.22;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.08, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+      g.connect(c.destination);
+      const o = c.createOscillator();
+      o.type = "sine";
+      o.frequency.value = f;
+      o.connect(g);
+      o.start(t);
+      o.stop(t + 0.55);
     });
   } catch (e) {}
 }
