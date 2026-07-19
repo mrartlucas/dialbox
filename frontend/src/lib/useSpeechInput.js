@@ -14,6 +14,7 @@ export function useSpeechInput() {
   const holdingRef = useRef(false);
   const finalRef = useRef("");
   const cbRef = useRef(null);
+  const errRef = useRef(null);
   const recRef = useRef(null);
 
   const build = useCallback(() => {
@@ -28,7 +29,9 @@ export function useSpeechInput() {
       }
       if (f.trim()) finalRef.current = (finalRef.current + " " + f).trim();
     };
-    rec.onerror = () => {};
+    rec.onerror = (e) => {
+      if (errRef.current) errRef.current(e.error);
+    };
     rec.onend = () => {
       // still held -> keep listening by starting a fresh recogniser
       if (holdingRef.current) {
@@ -49,11 +52,12 @@ export function useSpeechInput() {
   }, [SR]);
 
   const listen = useCallback(
-    (onResult) => {
+    (onResult, onError) => {
       if (!SR || holdingRef.current) return;
       holdingRef.current = true;
       finalRef.current = "";
       cbRef.current = onResult;
+      errRef.current = onError;
       setListening(true);
       const rec = build();
       recRef.current = rec;

@@ -59,6 +59,10 @@ function parseVoiceCommand(text) {
   return null;
 }
 
+// Voice/mic is blocked inside cross-origin iframes without allow="microphone",
+// so detect the embedded-preview case and guide the user to open a standalone tab.
+const IN_IFRAME = typeof window !== "undefined" && window.self !== window.top;
+
 const INTER_DIGIT_MS = 1300;
 const OPERATOR_VOICE = "nova"; // spoken IVR menu / operator prompts
 const ORACLE_VOICE = "shimmer"; // spoken Fortune Caller intro
@@ -83,6 +87,7 @@ export default function PhoneSimulator() {
   const [playing, setPlaying] = useState(false);
   const [incoming, setIncoming] = useState(false);
   const [mindlineInput, setMindlineInput] = useState("");
+  const [voiceBlocked, setVoiceBlocked] = useState(false);
   const { supported: speechSupported, listening, listen, stop: stopListening } = useSpeechInput();
 
   const audioRef = useRef(null);
@@ -419,9 +424,16 @@ export default function PhoneSimulator() {
 
   const micDown = useCallback(() => {
     if (listening) return;
-    listen((text) => {
-      if (holdTalkRef.current) holdTalkRef.current(text);
-    });
+    listen(
+      (text) => {
+        if (holdTalkRef.current) holdTalkRef.current(text);
+      },
+      (err) => {
+        if (err === "not-allowed" || err === "service-not-allowed" || err === "audio-capture") {
+          setVoiceBlocked(true);
+        }
+      }
+    );
   }, [listening, listen]);
 
   const micUp = useCallback(() => {
@@ -927,6 +939,18 @@ export default function PhoneSimulator() {
         )}
 
         {/* Hint */}
+        {(IN_IFRAME || voiceBlocked) && speechSupported && offHook && (
+          <a
+            href={typeof window !== "undefined" ? window.location.href : "#"}
+            target="_blank"
+            rel="noreferrer"
+            data-testid="voice-tab-hint"
+            className="mt-2 block rounded-sm border border-[#ffb000]/40 bg-[#ffb000]/10 px-2 py-1.5 text-center font-mono text-[10px] uppercase leading-relaxed tracking-widest text-[#ffb000] hover:bg-[#ffb000]/20"
+          >
+            🎤 voice is blocked in the embedded preview — tap to open DialBox in its own tab ↗
+          </a>
+        )}
+
         <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-600">
           {offHook ? "dial or hold Talk to say a number · \u2731 confirms a longer number" : "lift the handset to open the line"}
         </p>
