@@ -522,6 +522,7 @@ export default function PhoneSimulator() {
   }, [push, speak, setModeSafe]);
 
   const advStartStory = useCallback(async (slug) => {
+    stopAudio();
     setModeSafe("busy");
     try {
       const r = await api.adventureStart(slug);
@@ -537,6 +538,7 @@ export default function PhoneSimulator() {
 
   const advChoose = useCallback(async (key) => {
     if (!advSession.current.id) return;
+    stopAudio();
     setModeSafe("busy");
     push("caller", `chose ${key}`);
     try {
