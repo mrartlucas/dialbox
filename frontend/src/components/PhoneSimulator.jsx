@@ -164,11 +164,13 @@ export default function PhoneSimulator() {
       push("line", "  0  Repeat the menu");
       push("line", "  *  Voicemail");
       push("system", "Press a number to begin. Dial ✱ for voicemail, 0 to repeat.");
-      speak(
-        "Welcome to DialBox. Your direct line to fortunes, adventures, strange callers and more. " +
-          "Press a number to get started. Press zero to repeat the menu.",
-        { voice: OPERATOR_VOICE }
-      );
+      const available = menu.items.filter((it) => !it.coming_soon);
+      const spokenMenu =
+        menu.greeting +
+        " " +
+        available.map((it) => `For ${it.name}, press ${it.key}.`).join(" ") +
+        " To check your voicemail, press star. To hear this menu again, press zero.";
+      speak(spokenMenu, { voice: OPERATOR_VOICE });
     } catch (e) {
       push("error", "// could not reach the DialBox Network");
     }
