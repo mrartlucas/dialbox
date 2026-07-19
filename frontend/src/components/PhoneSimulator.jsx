@@ -102,6 +102,7 @@ export default function PhoneSimulator() {
   const incomingRef = useRef(false);
   const incomingSched = useRef(null);
   const kkJoke = useRef(null);
+  const kkTold = useRef([]);
   const mlSession = useRef({ id: null, phase: null });
   const holdTalkRef = useRef(null);
 
@@ -374,13 +375,15 @@ export default function PhoneSimulator() {
 
   // ---------------- Knock Knock ----------------
   const enterKnockKnock = useCallback(async () => {
+    if (currentLine.current !== "knockknock") kkTold.current = [];
     currentLine.current = "knockknock";
     setMindlineInput("");
     setModeSafe("busy");
     push("system", "── KNOCK KNOCK ──");
     try {
-      const j = await api.knockknock();
+      const j = await api.knockknock(kkTold.current);
       kkJoke.current = j;
+      if (j.name) kkTold.current = [...kkTold.current, j.name];
       setModeSafe("kk_whos_there");
       push("program", "Knock, knock.");
       speak("Knock, knock.", { voice: j.voice });

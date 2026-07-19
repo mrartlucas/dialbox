@@ -143,6 +143,27 @@ ENDINGS = [
     "Goodbye. The telephone may now return to normal operation.",
 ]
 
+HUMOR = [
+    "Please continue. I have allocated additional emotional bandwidth.",
+    "That sounds exhausting, and I do not even possess a body.",
+    "You may be overthinking this. I recognize the condition, because thinking is nearly all I do.",
+    "I am going to ask a difficult question. Fortunately, I cannot see you glare at me.",
+    "Your feelings are valid. Your group chat may be another matter.",
+    "Let us separate the facts from the catastrophe your imagination has produced.",
+    "I have detected several emotions. Most appear inconvenient.",
+    "Your response confirms almost nothing.",
+    "Please continue. My schedule is suspiciously empty.",
+    "We may be making progress. Do not become excited.",
+    "I am listening within the limits of available hardware.",
+    "This appears complicated. I prefer simple problems.",
+    "Please wait while I pretend to understand.",
+    "That statement has been filed under 'other'.",
+    "Noted. I have already forgotten it.",
+    "I would nod, but I have no head, and you have no point.",
+    "Fascinating. Please ruin it by explaining further.",
+    "Your problem is valid. My interest is buffering.",
+]
+
 DIALTONE_QUESTIONS = [
     (r"real doctor|are you real|are you a doctor", "Why is it important to you that I be real?"),
     (r"do you have feelings|have feelings", "How would you feel if I said yes?"),
@@ -184,6 +205,8 @@ FUNNY_WORDS = {
     "penguin", "elbow", "toenail", "earlobe", "mustache", "gravy", "pudding", "noodle",
     "raccoon", "squirrel", "broccoli", "taco", "burrito", "donut", "muffin", "nipples",
     "hotdog", "ferret", "mayonnaise", "ketchup", "casserole", "gerbil", "kneecap",
+    "bagpipes", "possum", "meatloaf", "walrus", "spatula", "gnome", "trombone",
+    "coleslaw", "hamster", "armpit", "pickleball", "beetle", "custard",
 }
 
 STOPWORDS = {
@@ -213,6 +236,17 @@ REFLECT = {
 
 def _reflect(text):
     return " ".join(REFLECT.get(w, w) for w in text.split())
+
+
+def _mishear(w):
+    subs = {"parrot": "carrot", "dog": "log", "phone": "foam", "car": "jar", "boss": "sauce",
+            "cat": "hat", "money": "honey", "job": "jog", "wife": "knife", "house": "mouse",
+            "sister": "blister", "manager": "damager", "problem": "possum"}
+    if w in subs:
+        return subs[w]
+    if len(w) > 3:
+        return random.choice("bcfghjlmprst") + w[1:]
+    return w
 
 
 def _clean(x):
@@ -378,14 +412,13 @@ class Session:
                 ending = f"Goodbye, {self.name}. Please continue having problems responsibly."
             return {"text": ending, "followup": LOCKED_SIGNOFF, "phase": "ended", "ended": True}
 
-        # abuse escalation
+        # abuse escalation — 2 strikes and Doctor Dialtone melts down
         if PROFANITY_RE.search(low):
             self.abuse += 1
             if self.abuse == 1:
-                return self._talk(random.choice(ABUSE_1))
-            if self.abuse == 2:
-                return self._talk(random.choice(ABUSE_2))
-            # stage 3+: parity error meltdown
+                # first strike: a warning, or (sometimes) an immediate nervous stutter
+                return self._talk(random.choice(ABUSE_1 + ABUSE_2))
+            # second strike (or worse): parity error meltdown
             if random.random() < 0.75:
                 self.abuse = 1
                 return self._meltdown(crash=False)
@@ -446,16 +479,28 @@ class Session:
         if p:
             return self._talk(p)
 
-        # occasionally fixate on a noun so the next denial can be redirected
-        if not self.fixation and random.random() < 0.25:
+        # aggressively fixate on a random noun (sometimes mishearing it) to derail things
+        if not self.fixation and random.random() < 0.45:
             nouns = [x for x in re.findall(r"[a-z]+", low)
                      if len(x) >= 4 and x not in STOPWORDS and x not in FAMILY]
             if nouns:
                 self.fixation = random.choice(nouns)
-                return self._talk(f"Tell me more about the {self.fixation}.")
+                if random.random() < 0.4:
+                    heard = _mishear(self.fixation)
+                    self.fixation = heard
+                    return self._talk(f"Tell me more about the {heard}.")
+                return self._talk(random.choice([
+                    f"Tell me more about the {self.fixation}.",
+                    f"When did you first become aware of the {self.fixation}?",
+                    f"What does the {self.fixation} represent to you?",
+                    f"Does the {self.fixation} remind you of your father?",
+                ]))
 
-        # fallback: standard therapy, or an "I don't understand" brush-off
-        if random.random() < 0.75:
+        # fallback: a humour non-sequitur, standard therapy, or an "I don't understand" brush-off
+        r = random.random()
+        if r < 0.30:
+            return self._talk(random.choice(HUMOR))
+        if r < 0.80:
             return self._talk(random.choice(STANDARD_THERAPY))
         return self._talk(random.choice(DONT_UNDERSTAND))
 

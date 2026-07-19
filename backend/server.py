@@ -173,12 +173,16 @@ async def seed():
     seed_slugs = [p["slug"] for p in PROGRAMS]
     await db.programs.delete_many({"slug": {"$nin": seed_slugs}})
     for i, (slug, p) in enumerate(PERSONAS.items()):
-        doc = {
-            "id": str(uuid.uuid4()), "slug": slug, "name": p["name"], "blurb": p["blurb"],
+        content = {
+            "slug": slug, "name": p["name"], "blurb": p["blurb"],
             "voice": p["voice"], "system_prompt": p["system_prompt"], "sign_off": p.get("sign_off", ""),
-            "type": "resident", "season": "all_year", "enabled": True, "order": i + 1,
+            "type": "resident", "season": "all_year", "order": i + 1,
         }
-        await db.personas.update_one({"slug": slug}, {"$setOnInsert": doc}, upsert=True)
+        await db.personas.update_one(
+            {"slug": slug},
+            {"$set": content, "$setOnInsert": {"id": str(uuid.uuid4()), "enabled": True}},
+            upsert=True,
+        )
     for code in SECRET_CODES:
         content = {"title": code["title"], "response_text": code["response_text"],
                    "voice": code["voice"]}
@@ -428,6 +432,15 @@ KNOCK_KNOCK_JOKES = [
     {"name": "Water", "punchline": "Water you doing? Just let me in already!"},
     {"name": "Amish", "punchline": "Aw, I'm-ish you too — it's been ages!"},
     {"name": "Snow", "punchline": "Snow use — I forgot the punchline!"},
+    {"name": "Broken pencil", "punchline": "Never mind — it's pointless!"},
+    {"name": "Kanga", "punchline": "Actually, it's kangaROO!"},
+    {"name": "Interrupting cow", "punchline": "MOO! (before you finish)"},
+    {"name": "Spell", "punchline": "Okay — W-H-O!"},
+    {"name": "Honeybee", "punchline": "Honeybee a dear and get the door!"},
+    {"name": "Nana", "punchline": "Nana your business who's knocking!"},
+    {"name": "Robin", "punchline": "Robin you — hand over the snacks!"},
+    {"name": "Says", "punchline": "Says me, that's who — now open up!"},
+    {"name": "Weekend", "punchline": "A weekend is never long enough!"},
 ]
 
 KNOCK_SYSTEM = (
@@ -438,11 +451,15 @@ KNOCK_SYSTEM = (
 )
 
 
+class KnockRequest(BaseModel):
+    exclude: List[str] = []
+
+
 @api_router.post("/programs/knockknock")
-async def knockknock():
+async def knockknock(payload: KnockRequest):
     import random
     import json
-    if EMERGENT_LLM_KEY and random.random() < 0.25:
+    if EMERGENT_LLM_KEY and random.random() < 0.5:
         try:
             chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
@@ -462,7 +479,9 @@ async def knockknock():
                 return {"name": name, "punchline": punch, "voice": "fable", "ai": True}
         except Exception:
             logger.warning("Knock-knock AI generation failed; falling back to bank")
-    j = random.choice(KNOCK_KNOCK_JOKES)
+    exclude = set(payload.exclude or [])
+    pool = [j for j in KNOCK_KNOCK_JOKES if j["name"] not in exclude] or KNOCK_KNOCK_JOKES
+    j = random.choice(pool)
     return {"name": j["name"], "punchline": j["punchline"], "voice": "fable", "ai": False}
 
 
