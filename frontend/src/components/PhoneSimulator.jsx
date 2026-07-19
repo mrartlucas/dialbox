@@ -689,20 +689,28 @@ export default function PhoneSimulator() {
           />
         )}
 
-        {/* MindLine voice-input simulation (typed here; real device uses Whisper STT) */}
-        {(mode === "mindline_name" || mode === "mindline_talk") && (
+        {/* MindLine + Magic 8 voice-input simulation (typed here; real device uses Whisper STT) */}
+        {(mode === "mindline_name" || mode === "mindline_talk" || mode === "magic8_ask") && (
           <form
             className="mb-4 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              mode === "mindline_name" ? submitMindlineName() : sendMindline();
+              if (mode === "mindline_name") submitMindlineName();
+              else if (mode === "magic8_ask") askMagic8();
+              else sendMindline();
             }}
           >
             <input
-              data-testid="mindline-input"
+              data-testid={mode === "magic8_ask" ? "magic8-input" : "mindline-input"}
               value={mindlineInput}
               onChange={(e) => setMindlineInput(e.target.value)}
-              placeholder={mode === "mindline_name" ? "state your name…" : "speak to Dr. Dialtone…"}
+              placeholder={
+                mode === "mindline_name"
+                  ? "state your name…"
+                  : mode === "magic8_ask"
+                  ? "ask your question, then press 8…"
+                  : "speak to Dr. Dialtone…"
+              }
               className="flex-1 rounded-sm border-2 border-neutral-800 bg-black px-3 py-2 font-mono text-sm text-cyan-300 placeholder:text-neutral-700 focus:border-[#39ff14] focus:outline-none"
             />
             <button
