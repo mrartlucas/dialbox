@@ -191,6 +191,9 @@ export default function PhoneSimulator() {
       await p.play();
     } catch (e) {
       setPlaying(false);
+      // Rapid successive speak() calls (barge-in) abort the previous play() — benign, ignore.
+      const name = e && e.name;
+      if (name === "AbortError") return;
       push("error", "// audio channel unavailable");
     }
   }, [push, getPlayer]);
