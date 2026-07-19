@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend-only test of DialBox iteration 8: layout reorder (controls above CRT) and new Endless Adventure AI mode. Verified via Playwright on the public REACT_APP_BACKEND_URL. Core features PASS end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/tts", "issue": "Intermittent '// audio channel unavailable' error line appears in CRT during AI adventure flows (TTS speak() throws). Non-blocking — the story text still renders and gameplay continues, but the error message is visible to users."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Dial 3 MindLine regression after switching lines", "issue": "One-off timeout: mindline-input did not appear within 10s after Fortune->0->3 sequence in the same session. Dial 8 immediately after worked. Likely flaky (backend mindlineStart latency); needs re-verification.", "affected_selectors": ["[data-testid='mindline-input']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Investigate why api.tts() intermittently fails during the Endless Adventure entry sequence (speak of 'Wonderful. Give me a moment…'). Suppress or retry so the '// audio channel unavailable' error line does not pollute the CRT.",
+    "Verify Dial 3 MindLine still starts reliably after coming back from another line (Fortune->0->3). May be a backend latency issue; consider extending the busy timeout or showing a loading state."
+  ],
+  "critical_code_review_comments": [
+    "PhoneSimulator.jsx is 1269 lines — consider splitting per-line handlers (Fortune, MindLine, Magic8, Knock, Adventure) into hooks for maintainability.",
+    "speak() catch pushes '// audio channel unavailable' to the CRT even for non-critical prompts (e.g., operator options). Consider silent-failing operator-voice prompts to avoid confusing error lines during otherwise-successful AI flow."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "~90% (all critical iteration-8 features pass; 1 flaky regression)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Verified: (1) lift-handset-btn / hangup-btn / keypad / hold-to-talk-btn all render ABOVE data-testid='crt-console'. (2) Dial 4 shows 4 story options including 'Endless Adventure — you name the theme'. (3) Pressing 4 opens adventure-theme-input with placeholder. (4) Submitting 'friendly dinosaurs' via Enter -> pushed 'theme: friendly dinosaurs' and '✍ The storyteller is dreaming up your adventure…' then GPT rendered '▶ Endless: friendly dinosaurs' + coherent kid-safe opening scene with 3 numbered choices ('Follow the chime trail', 'Call Tilly for directions', 'Ask nearby dinos for help'). (5) Fortune dial 1 oracle list works; Magic8 dial 8 input works. NOTE: Real AI story-advancement to endings (~7 turns) was not fully clicked through — main agent can spot-check but backend team confirmed AI branching + endings in iteration_7. NOTE: TTS produces occasional '// audio channel unavailable' lines but flow continues. Read the CRT via [data-testid='crt-console'] not body (config panel repeats menu text).",
+  "rca of the issue": "The '// audio channel unavailable' line is emitted by speak() catch in PhoneSimulator.jsx (~line 194). It appears when api.tts throws; likely occurs when a second speak() call is fired while the previous audio element is still resolving, or when the TTS backend rate-limits. Mitigation: (a) swallow the error for optional/operator prompts, or (b) queue speak calls to serialize them, or (c) retry once on transient failure."
+}

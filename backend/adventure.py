@@ -311,6 +311,27 @@ STORIES = {"starfall": STARFALL, "spy": SPY, "treasure": TREASURE}
 
 SESSIONS = {}
 
+# ----------------------------- Endless (AI) mode -----------------------------
+AI_SESSIONS = {}
+
+
+def ai_new_session(theme):
+    sid = uuid.uuid4().hex
+    AI_SESSIONS[sid] = {
+        "theme": (theme or "").strip() or "a surprising journey",
+        "turns": 0,
+        "history": [],          # recent scene summaries
+        "last_choices": {},      # {key: label} of the choices last offered
+    }
+    if len(AI_SESSIONS) > 300:
+        for k in list(AI_SESSIONS)[:100]:
+            AI_SESSIONS.pop(k, None)
+    return sid
+
+
+def ai_get(sid):
+    return AI_SESSIONS.get(sid)
+
 
 def _node_payload(story, node_id, inventory):
     node = STORIES[story]["nodes"][node_id]

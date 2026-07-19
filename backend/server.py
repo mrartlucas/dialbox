@@ -600,6 +600,125 @@ async def adventure_choose(payload: AdventureChoice):
     return adventure.choose(payload.session_id, payload.choice)
 
 
+# --- Endless (AI-driven) adventure ---
+class AdventureAiStart(BaseModel):
+    theme: Optional[str] = ""
+
+
+class AdventureAiChoose(BaseModel):
+    session_id: str
+    choice: str
+
+
+AI_ADV_SYSTEM = (
+    "You are the narrator of a family-friendly, kid-safe interactive audio adventure played over a "
+    "toy telephone. Keep it imaginative, exciting, and lighthearted. STRICT RULES: absolutely no "
+    "horror, gore, graphic violence, death detail, romance, profanity, or scary/disturbing content; "
+    "keep everything suitable for an 8-year-old. Second person ('You...'). Each turn write ONE short "
+    "vivid scene (2 to 4 sentences meant to be spoken aloud) that continues the story, then offer 2 "
+    "or 3 clearly different choices. Respond with ONLY compact JSON and nothing else, no markdown, in "
+    'the exact form: {"text": "<scene>", "choices": [{"key": "1", "label": "<short action>"}, '
+    '{"key": "2", "label": "<short action>"}], "ended": false, "ending": null}. Labels must be under '
+    'eight words. When the adventure reaches a natural conclusion, set "ended" to true, "choices" to '
+    'an empty list, and "ending" to one of "win", "lose", or "neutral".'
+)
+
+
+def _parse_ai_json(raw):
+    import json
+    s = str(raw).strip().strip("`").strip()
+    if s.lower().startswith("json"):
+        s = s[4:].strip()
+    start = s.find("{")
+    end = s.rfind("}")
+    if start != -1 and end != -1:
+        s = s[start:end + 1]
+    return json.loads(s)
+
+
+async def _ai_turn(sess, user_prompt):
+    """Ask the LLM for the next scene; normalize + persist it onto the session."""
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=str(uuid.uuid4()),
+        system_message=AI_ADV_SYSTEM,
+    ).with_model("openai", "gpt-5.2")
+    raw = await chat.send_message(UserMessage(text=user_prompt))
+    data = _parse_ai_json(raw)
+    text = str(data.get("text", "")).strip()
+    ended = bool(data.get("ended"))
+    ending = data.get("ending") if ended else None
+    choices = []
+    if not ended:
+        for i, c in enumerate((data.get("choices") or [])[:3]):
+            label = str(c.get("label", "")).strip() if isinstance(c, dict) else str(c).strip()
+            if label:
+                choices.append({"key": str(i + 1), "label": label})
+        if not choices:
+            ended = True
+            ending = ending or "neutral"
+    sess["turns"] += 1
+    sess["history"].append(f"Scene: {text}")
+    sess["history"] = sess["history"][-6:]
+    sess["last_choices"] = {c["key"]: c["label"] for c in choices}
+    return {
+        "node_id": f"ai_{sess['turns']}",
+        "text": text,
+        "voice": adventure.NARRATOR_VOICE,
+        "choices": choices,
+        "inventory": [],
+        "ending": ending,
+        "ended": ended or ending is not None,
+    }
+
+
+@api_router.post("/adventure/ai/start")
+async def adventure_ai_start(payload: AdventureAiStart):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    sid = adventure.ai_new_session(payload.theme)
+    sess = adventure.ai_get(sid)
+    prompt = (
+        f"Begin a brand-new interactive adventure. Theme requested by the player: \"{sess['theme']}\". "
+        "Write the opening scene that sets up an exciting hook, then give the first choices."
+    )
+    try:
+        node = await _ai_turn(sess, prompt)
+    except Exception:
+        logger.exception("AI adventure start failed")
+        raise HTTPException(status_code=502, detail="The storyteller could not be reached")
+    return {"session_id": sid, "title": f"Endless: {sess['theme'][:40]}", "node": node}
+
+
+@api_router.post("/adventure/ai/choose")
+async def adventure_ai_choose(payload: AdventureAiChoose):
+    sess = adventure.ai_get(payload.session_id)
+    if not sess:
+        return {"error": "session_expired", "ended": True, "choices": [], "inventory": [],
+                "voice": adventure.NARRATOR_VOICE,
+                "text": "The story faded into static. Dial the adventure again to begin anew."}
+    label = sess.get("last_choices", {}).get(str(payload.choice)) or f"option {payload.choice}"
+    recent = " ".join(sess.get("history", [])[-4:])
+    final_nudge = (
+        " This must be the FINAL scene: bring the adventure to a satisfying, complete conclusion now "
+        "and set ended to true."
+        if sess["turns"] >= 6 else ""
+    )
+    prompt = (
+        f"Theme: \"{sess['theme']}\". Story so far: {recent} "
+        f"The player chose: \"{label}\". Continue with the next scene and choices.{final_nudge}"
+    )
+    try:
+        return await _ai_turn(sess, prompt)
+    except Exception:
+        logger.exception("AI adventure choose failed")
+        return {"error": "generation_failed", "ended": False,
+                "node_id": f"ai_{sess['turns']}", "text": "Static crackles on the line — try that choice again.",
+                "voice": adventure.NARRATOR_VOICE,
+                "choices": [{"key": k, "label": v} for k, v in sess.get("last_choices", {}).items()],
+                "inventory": [], "ending": None}
+
+
 @api_router.get("/mindline/leaderboard")
 async def mindline_leaderboard():
     docs = await db.mindline_scores.find({}, {"_id": 0}).sort("score", -1).to_list(20)

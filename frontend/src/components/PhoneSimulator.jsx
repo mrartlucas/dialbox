@@ -25,6 +25,7 @@ const STATUS = {
   adventure_play: "ADVENTURE",
   adventure_end: "THE END",
   adventure_select: "PICK A TALE",
+  adventure_ai_theme: "NEW TALE",
   exit_confirm: "END CALL?",
   call_ended: "CALL ENDED",
   incoming: "RINGING",
@@ -38,6 +39,7 @@ const INPUT_MODES = {
   magic8_ask: { testid: "magic8-input", ph: "ask your question, then press 8…" },
   kk_whos_there: { testid: "knock-input", ph: "say “who's there?”…" },
   kk_who: { testid: "knock-input", ph: "say “… who?”…" },
+  adventure_ai_theme: { testid: "adventure-theme-input", ph: "name a theme… (pirates, space, dragons)" },
 };
 
 // MindLine server phase -> simulator mode.
@@ -503,14 +505,15 @@ export default function PhoneSimulator() {
     push("system", "── DIAL 4 ADVENTURE ──");
     try {
       const stories = await api.adventureStories();
-      advStories.current = stories;
+      const withAi = [...stories, { slug: "__ai__", title: "Endless Adventure — you name the theme" }];
+      advStories.current = withAi;
       push("program", "Choose your adventure.");
-      stories.forEach((s, i) => push("line", `  ${i + 1}  ${s.title}`));
+      withAi.forEach((s, i) => push("line", `  ${i + 1}  ${s.title}`));
       push("system", "Press a number to begin · 0 to leave.");
       setModeSafe("adventure_select");
       const spoken =
         "Choose your adventure. " +
-        stories.map((s, i) => `For ${s.title}, press ${i + 1}.`).join(" ") +
+        withAi.map((s, i) => `For ${s.title}, press ${i + 1}.`).join(" ") +
         " Or press zero to leave.";
       lastSpoken.current = { text: "Choose your adventure.", opts: { voice: OPERATOR_VOICE }, optionsText: spoken };
       speak(spoken, { voice: OPERATOR_VOICE });
@@ -542,7 +545,9 @@ export default function PhoneSimulator() {
     setModeSafe("busy");
     push("caller", `chose ${key}`);
     try {
-      const r = await api.adventureChoose(advSession.current.id, key);
+      const r = advSession.current.ai
+        ? await api.adventureAiChoose(advSession.current.id, key)
+        : await api.adventureChoose(advSession.current.id, key);
       if (r.error) {
         push("error", "// the signal was lost in the static");
         backToMenu();
@@ -555,13 +560,45 @@ export default function PhoneSimulator() {
     }
   }, [push, renderAdvNode, backToMenu, setModeSafe]);
 
+  // Endless (AI) mode: caller names a theme, GPT spins a fresh branching tale.
+  const enterAiTheme = useCallback(() => {
+    setMindlineInput("");
+    stopAudio();
+    setModeSafe("adventure_ai_theme");
+    push("system", "── ENDLESS ADVENTURE ──");
+    push("program", "Name any theme — pirates, dinosaurs, space wizards, a magical bakery — and I'll spin you a tale.");
+    speak("Name any theme for your adventure. For example: pirates, dinosaurs, or a magical bakery. Then press send, or just say it.",
+      { voice: OPERATOR_VOICE });
+  }, [push, speak, setModeSafe]);
+
+  const aiStartAdventure = useCallback(async (theme) => {
+    const t = (typeof theme === "string" ? theme : mindlineInput).trim();
+    setMindlineInput("");
+    stopAudio();
+    setModeSafe("busy");
+    push("caller", `theme: ${t || "surprise me"}`);
+    push("program", "✍ The storyteller is dreaming up your adventure…");
+    speak("Wonderful. Give me a moment to write your tale.", { voice: OPERATOR_VOICE });
+    try {
+      const r = await api.adventureAiStart(t);
+      advSession.current = { id: r.session_id, node: null, slug: "__ai__", ai: true };
+      push("program", `\u25b6 ${r.title}`);
+      renderAdvNode(r.node);
+    } catch (e) {
+      setModeSafe("message");
+      push("error", "// the storyteller is unavailable right now");
+      push("system", "Dial 0 for the main menu, or hang up.");
+    }
+  }, [mindlineInput, push, speak, renderAdvNode, setModeSafe]);
+
   const submitCurrent = useCallback((val) => {
     const m = modeRef.current;
     if (m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk") mindlineSend(val);
     else if (m === "magic8_ask") askMagic8(val);
     else if (m === "kk_whos_there") kkRespond(val);
     else if (m === "kk_who") kkReveal(val);
-  }, [mindlineSend, askMagic8, kkRespond, kkReveal]);
+    else if (m === "adventure_ai_theme") aiStartAdventure(val);
+  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure]);
 
   const micStart = useCallback(() => {
     if (listening) return;
@@ -825,7 +862,7 @@ export default function PhoneSimulator() {
     const inMindline = m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk";
     const inMagic8 = m === "magic8_ask" || m === "magic8_answer";
     const inKnock = m === "kk_whos_there" || m === "kk_who" || m === "kk_done";
-    const inAdventure = m === "adventure_play" || m === "adventure_end" || m === "adventure_select";
+    const inAdventure = m === "adventure_play" || m === "adventure_end" || m === "adventure_select" || m === "adventure_ai_theme";
     const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || m === "fortune_persona";
 
     // ## (double pound) = universal exit; opens the End Call? confirmation.
@@ -880,8 +917,13 @@ export default function PhoneSimulator() {
       else {
         const idx = parseInt(d, 10) - 1;
         const s = advStories.current && advStories.current[idx];
-        if (s) advStartStory(s.slug);
+        if (s && s.slug === "__ai__") enterAiTheme();
+        else if (s) advStartStory(s.slug);
       }
+      return;
+    }
+    if (m === "adventure_ai_theme") {
+      if (d === "0") backToMenu();
       return;
     }
     if (m === "adventure_play") {
@@ -891,7 +933,7 @@ export default function PhoneSimulator() {
       return;
     }
     if (m === "adventure_end") {
-      if (d === "1") advStartStory(advSession.current.slug || "starfall");
+      if (d === "1") advSession.current.ai ? enterAiTheme() : advStartStory(advSession.current.slug || "starfall");
       else if (d === "2") enterAdventure();
       else if (d === "*") replayLast();
       else if (d === "0") backToMenu();
@@ -933,7 +975,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).
@@ -1050,9 +1092,27 @@ export default function PhoneSimulator() {
           </div>
         </div>
 
-        {/* CRT console */}
-        <div className="mb-5 h-64">
-          <CrtConsole lines={lines} statusLabel={incoming ? STATUS.incoming : STATUS[mode]} />
+        {/* Hook control — lift / hang up, kept up top for quick access */}
+        <div className="mb-4">
+          {!offHook ? (
+            <button
+              data-testid="lift-handset-btn"
+              onClick={lift}
+              className={`tactile flex w-full items-center justify-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 py-4 font-mono text-sm font-bold uppercase tracking-widest crt-glow hover:bg-[#39ff14]/25 ${
+                incoming ? "ringing" : ""
+              }`}
+            >
+              <PhoneCall className="h-5 w-5" /> {incoming ? "Answer" : "Lift Handset"}
+            </button>
+          ) : (
+            <button
+              data-testid="hangup-btn"
+              onClick={resetLine}
+              className="tactile flex w-full items-center justify-center gap-2 rounded-sm border-2 border-red-600 bg-red-600/15 py-4 font-mono text-sm font-bold uppercase tracking-widest text-red-400 hover:bg-red-600/25"
+            >
+              <PhoneOff className="h-5 w-5" /> Hang Up
+            </button>
+          )}
         </div>
 
         {/* Dialed buffer */}
@@ -1188,27 +1248,9 @@ export default function PhoneSimulator() {
           {offHook ? "dial or use Talk to say a number · \u2731 confirms a longer number" : "lift the handset to open the line"}
         </p>
 
-        {/* Hook control */}
-        <div className="mt-3">
-          {!offHook ? (
-            <button
-              data-testid="lift-handset-btn"
-              onClick={lift}
-              className={`tactile flex w-full items-center justify-center gap-2 rounded-sm border-2 border-[#39ff14] bg-[#39ff14]/15 py-4 font-mono text-sm font-bold uppercase tracking-widest crt-glow hover:bg-[#39ff14]/25 ${
-                incoming ? "ringing" : ""
-              }`}
-            >
-              <PhoneCall className="h-5 w-5" /> {incoming ? "Answer" : "Lift Handset"}
-            </button>
-          ) : (
-            <button
-              data-testid="hangup-btn"
-              onClick={resetLine}
-              className="tactile flex w-full items-center justify-center gap-2 rounded-sm border-2 border-red-600 bg-red-600/15 py-4 font-mono text-sm font-bold uppercase tracking-widest text-red-400 hover:bg-red-600/25"
-            >
-              <PhoneOff className="h-5 w-5" /> Hang Up
-            </button>
-          )}
+        {/* Line Monitor (CRT) — below the controls so you never scroll up to dial */}
+        <div className="mt-4 h-64">
+          <CrtConsole lines={lines} statusLabel={incoming ? STATUS.incoming : STATUS[mode]} />
         </div>
 
         {/* Scheduled-call simulator */}

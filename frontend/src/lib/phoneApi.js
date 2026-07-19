@@ -39,6 +39,9 @@ export const api = {
   adventureChoose: (session_id, choice) =>
     http.post("/adventure/choose", { session_id, choice }).then((r) => r.data),
   adventureStories: () => http.get("/adventure/stories").then((r) => r.data),
+  adventureAiStart: (theme) => http.post("/adventure/ai/start", { theme }).then((r) => r.data),
+  adventureAiChoose: (session_id, choice) =>
+    http.post("/adventure/ai/choose", { session_id, choice }).then((r) => r.data),
   getVoicemails: () => http.get("/voicemails").then((r) => r.data),
   createVoicemail: (program_slug) => http.post("/voicemails", { program_slug }).then((r) => r.data),
   markVoicemail: (id) => http.patch(`/voicemails/${id}`).then((r) => r.data),
