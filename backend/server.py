@@ -544,7 +544,20 @@ async def mindline_start():
 async def mindline_turn(payload: MindlineTurn):
     r = mindline.turn(payload.session_id, payload.message)
     r["voice"] = mindline.DR_VOICE
+    if r.get("event") == "meltdown":
+        await db.mindline_scores.insert_one({
+            "id": str(uuid.uuid4()),
+            "name": r.get("name") or "Anonymous",
+            "score": int(r.get("score") or 0),
+            "created_at": now_iso(),
+        })
     return r
+
+
+@api_router.get("/mindline/leaderboard")
+async def mindline_leaderboard():
+    docs = await db.mindline_scores.find({}, {"_id": 0}).sort("score", -1).to_list(20)
+    return docs[:10]
 
 
 # ----------------------------- Voicemail -----------------------------

@@ -33,6 +33,7 @@ export const api = {
   mindlineStart: () => http.post("/mindline/start").then((r) => r.data),
   mindlineTurn: (session_id, message) =>
     http.post("/mindline/turn", { session_id, message }).then((r) => r.data),
+  mindlineLeaderboard: () => http.get("/mindline/leaderboard").then((r) => r.data),
   getVoicemails: () => http.get("/voicemails").then((r) => r.data),
   createVoicemail: (program_slug) => http.post("/voicemails", { program_slug }).then((r) => r.data),
   markVoicemail: (id) => http.patch(`/voicemails/${id}`).then((r) => r.data),

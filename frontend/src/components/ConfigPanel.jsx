@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Power, Hash, KeyRound, CalendarClock, Plus, Trash2, Save, Sparkles, Wand2, Pencil, X } from "lucide-react";
+import { Power, Hash, KeyRound, CalendarClock, Plus, Trash2, Save, Sparkles, Wand2, Pencil, X, Trophy } from "lucide-react";
 import { api } from "../lib/phoneApi";
 import OraclesTab from "./OraclesTab";
 
@@ -34,6 +34,7 @@ const TABS = [
   { id: "oracles", label: "Oracles", icon: Wand2 },
   { id: "secrets", label: "Secret Numbers", icon: KeyRound },
   { id: "schedules", label: "Schedules", icon: CalendarClock },
+  { id: "meltdowns", label: "Meltdowns", icon: Trophy },
 ];
 
 export default function ConfigPanel() {
@@ -41,6 +42,7 @@ export default function ConfigPanel() {
   const [programs, setPrograms] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [scores, setScores] = useState([]);
 
   const loadAll = async () => {
     const [p, s, sc] = await Promise.all([
@@ -56,6 +58,10 @@ export default function ConfigPanel() {
   useEffect(() => {
     loadAll();
   }, []);
+
+  useEffect(() => {
+    if (tab === "meltdowns") api.mindlineLeaderboard().then(setScores).catch(() => {});
+  }, [tab]);
 
   const toggleProgram = async (prog) => {
     const updated = await api.updateProgram(prog.slug, { enabled: !prog.enabled });
@@ -122,6 +128,7 @@ export default function ConfigPanel() {
                 setSchedules={setSchedules}
               />
             )}
+            {tab === "meltdowns" && <MeltdownsTab scores={scores} />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -345,6 +352,41 @@ function SecretsTab({ secrets, setSecrets }) {
                 </div>
               </div>
             )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MeltdownsTab({ scores }) {
+  return (
+    <div className="space-y-4" data-testid="meltdowns-tab">
+      <div className="rounded-sm border-2 border-[#ffb000]/30 bg-[#ffb000]/5 p-4">
+        <p className="mb-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.3em] text-[#ffb000]">
+          <Trophy className="h-3.5 w-3.5" /> Hall of Meltdowns
+        </p>
+        <p className="font-mono text-xs text-neutral-500">
+          Turns Doctor Dialtone survived before a caller drove him to a parity error.
+        </p>
+      </div>
+      <div className="space-y-2">
+        {(!scores || scores.length === 0) && (
+          <p className="font-mono text-xs text-neutral-600">
+            // no meltdowns yet — call MindLine and go break the doctor
+          </p>
+        )}
+        {(scores || []).map((s, i) => (
+          <div
+            key={s.id || i}
+            data-testid={`meltdown-row-${i}`}
+            className="flex items-center gap-4 rounded-sm border-2 border-neutral-800 bg-black p-3"
+          >
+            <span className={`w-10 shrink-0 font-mono text-lg ${i === 0 ? "amber-glow" : "text-neutral-500"}`}>
+              #{i + 1}
+            </span>
+            <p className="min-w-0 flex-1 truncate font-mono text-sm font-bold">{s.name}</p>
+            <span className="shrink-0 font-mono text-sm crt-glow">{s.score} turns</span>
           </div>
         ))}
       </div>

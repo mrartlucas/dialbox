@@ -244,9 +244,23 @@ export default function PhoneSimulator() {
       if (r.sfx) playSfx(r.sfx);
       push("program", `Dr. Dialtone: ${r.text}`);
       if (!r.ended) setModeSafe(PHASE_MODE[r.phase] || "mindline_talk");
-      const finish = () => {
+      const finish = async () => {
         if (prevPhase === "confirm" && r.phase === "talking") playBeep();
-        if (r.ended) backToMenu();
+        if (r.event === "meltdown") {
+          push("system", `💥 You broke Doctor Dialtone in ${r.score} turn${r.score === 1 ? "" : "s"}! Added to the Hall of Meltdowns.`);
+          if (r.ended) {
+            try {
+              const board = await api.mindlineLeaderboard();
+              push("system", "── HALL OF MELTDOWNS ──");
+              board.slice(0, 5).forEach((b, i) =>
+                push("line", `  ${i + 1}. ${b.name} — ${b.score} turns`));
+            } catch (e) {}
+          }
+        }
+        if (r.ended) {
+          if (r.event === "meltdown") setTimeout(() => backToMenu(), 5000);
+          else backToMenu();
+        }
       };
       speak(r.text, { voice: r.voice }, () => {
         if (r.followup) {

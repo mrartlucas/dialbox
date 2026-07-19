@@ -92,3 +92,10 @@ dormant. Full multi-phase roadmap in the original brief.
 - **Frontend** (PhoneSimulator.jsx): new mindline state machine driven by server `phase` (modes mindline_name/mindline_confirm/mindline_talk), `mlSession` ref, `mindlineSend` unified handler, `playSfx`. Mic + typed input work in all three modes.
 - Verified: engine unit test (12-turn convo incl. abuse/parity/goodbye), live curl (start/name/confirm/talk), screenshots (name-confirm, opening, talk, parity breakdown, goodbye->menu). No JS errors.
 - **DEFERRED to Phase 2** (per user "phase it"): silence/idle timers, random retro error events (thought-buffer/topic-lost/false-diagnosis/memory-failure/system-update/telephone-interference), detailed nonsense bank expansion, wrong-callback (parrot/carrot) mode, richer contradiction detection. Also pending: ElevenLabs live voice + Seed Audio 1.0, editable ELIZA rules in Config Panel.
+
+## Update 2026-07-19 (Break-the-Doctor Leaderboard)
+- New "Hall of Meltdowns" leaderboard: MindLine records the turn count the first time a caller drives Doctor Dialtone to a PARITY ERROR meltdown (name from the session).
+- Backend: `mindline._meltdown()` emits `event/score/name` on first parity; `POST /api/mindline/turn` inserts into `mindline_scores`; `GET /api/mindline/leaderboard` returns top 10 by score desc.
+- Frontend: in-call CRT shows "💥 You broke Doctor Dialtone in N turns!" + top-5 board on crash; Config Panel has a new **Meltdowns** tab (Trophy icon) listing the leaderboard.
+- Verified: live curl (Kevin & Dana recorded at 4 turns), Config Panel tab renders board. Files: mindline.py, server.py, phoneApi.js, PhoneSimulator.jsx, ConfigPanel.jsx.
+- TELEPHONY PIVOT NOTE (user exploring Cell2Jack): recommended path is Twilio Programmable Voice — give DialBox a real phone number + TwiML webhooks that reuse existing program logic + <Gather> for DTMF; avoids building a CallKit/Android-telecom app. Not yet built (needs Twilio account/number, paid).

@@ -246,6 +246,7 @@ class Session:
         self.last_callback_word = None
         self.last_callback_ex = 0
         self.fixation = None
+        self.broken = False
 
     # ---- memory ----
     def _add_bw(self, w):
@@ -289,6 +290,23 @@ class Session:
     def _talk(text, **extra):
         d = {"text": text, "phase": "talking"}
         d.update(extra)
+        return d
+
+    def _meltdown(self, crash):
+        d = {"text": PARITY_TEXT, "sfx": "parity"}
+        if crash:
+            d["followup"] = "MINDLINE SESSION TERMINATED."
+            d["phase"] = "ended"
+            d["ended"] = True
+            self.phase = "ended"
+        else:
+            d["followup"] = random.choice(RECOVERY)
+            d["phase"] = "talking"
+        if not self.broken:  # score the first time the caller breaks Doctor Dialtone
+            self.broken = True
+            d["event"] = "meltdown"
+            d["score"] = self.exchanges
+            d["name"] = self.name
         return d
 
     def _patterns(self, msg, low):
@@ -367,13 +385,11 @@ class Session:
                 return self._talk(random.choice(ABUSE_1))
             if self.abuse == 2:
                 return self._talk(random.choice(ABUSE_2))
-            # stage 3+: parity error
+            # stage 3+: parity error meltdown
             if random.random() < 0.75:
                 self.abuse = 1
-                return self._talk(PARITY_TEXT, sfx="parity", followup=random.choice(RECOVERY))
-            self.phase = "ended"
-            return {"text": PARITY_TEXT, "followup": "MINDLINE SESSION TERMINATED.",
-                    "sfx": "parity", "phase": "ended", "ended": True}
+                return self._meltdown(crash=False)
+            return self._meltdown(crash=True)
 
         # breakthrough reaction escalation
         if self.awaiting_reaction:
