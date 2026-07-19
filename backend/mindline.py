@@ -164,6 +164,31 @@ HUMOR = [
     "Your problem is valid. My interest is buffering.",
 ]
 
+# Random comedic "system errors" (bible retro error events).
+RETRO_ERRORS = [
+    {"text": "Please wait. Your problem is being compressed.",
+     "followup": "Compression failed. Continue anyway."},
+    {"text": "I have lost the topic. Was this about your job, your mother, or the sandwich?"},
+    {"text": "Preliminary diagnosis: unresolved Tuesday.",
+     "followup": "Correction. Tuesday is not a recognized condition."},
+    {"text": "You mentioned someone earlier. Their name has been deleted for efficiency."},
+    {"text": "Please wait while MindLine installs empathy.",
+     "followup": "Installation unsuccessful."},
+    {"text": "Breakthrough detected.", "followup": "Correction. It was only a repeated word."},
+    {"text": "Emotional data exceeds available storage. Please experience fewer feelings."},
+    {"text": "Your problem is experiencing static. Please repeat the emotional portion."},
+]
+
+# Escalating responses when the caller goes quiet (silence timers).
+SILENCE = [
+    "Take your time.",
+    "I am waiting.",
+    "Do not simply hold the telephone. Speak to me.",
+    "Silence is not considered meaningful input. Do not just breathe into the receiver.",
+    "This session is becoming extremely affordable. Please say something sensible.",
+]
+SILENCE_FINAL = "The patient appears to have left. Call again when you are prepared to participate."
+
 DIALTONE_QUESTIONS = [
     (r"real doctor|are you real|are you a doctor", "Why is it important to you that I be real?"),
     (r"do you have feelings|have feelings", "How would you feel if I said yes?"),
@@ -281,6 +306,7 @@ class Session:
         self.last_callback_ex = 0
         self.fixation = None
         self.broken = False
+        self.silence_count = 0
 
     # ---- memory ----
     def _add_bw(self, w):
@@ -397,8 +423,16 @@ class Session:
             ])
         return None
 
+    def silence(self):
+        self.silence_count += 1
+        if self.silence_count > len(SILENCE):
+            self.phase = "ended"
+            return {"text": SILENCE_FINAL, "phase": "ended", "ended": True, "sfx": "disconnect"}
+        return self._talk(SILENCE[self.silence_count - 1])
+
     def respond(self, msg):
         self.exchanges += 1
+        self.silence_count = 0
         low = msg.lower().strip()
 
         if not msg or not re.search(r"[a-zA-Z]", msg):
@@ -496,6 +530,14 @@ class Session:
                     f"Does the {self.fixation} remind you of your father?",
                 ]))
 
+        # random retro glitch (comedic simulated system errors)
+        if random.random() < 0.10:
+            g = random.choice(RETRO_ERRORS)
+            d = self._talk(g["text"])
+            if g.get("followup"):
+                d["followup"] = g["followup"]
+            return d
+
         # fallback: a humour non-sequitur, standard therapy, or an "I don't understand" brush-off
         r = random.random()
         if r < 0.30:
@@ -542,4 +584,6 @@ def turn(sid, message):
     if s.phase == "ended":
         return {"text": "This session has ended.", "phase": "ended", "ended": True}
 
+    if msg == "__silence__":
+        return s.silence()
     return s.respond(msg)

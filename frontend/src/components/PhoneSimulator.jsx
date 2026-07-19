@@ -263,7 +263,7 @@ export default function PhoneSimulator() {
     const msg = (typeof explicit === "string" ? explicit : mindlineInput).trim();
     if (!msg) return;
     setMindlineInput("");
-    push("caller", msg);
+    if (msg !== "__silence__") push("caller", msg);
     const prevPhase = mlSession.current.phase;
     setModeSafe("busy");
     try {
@@ -303,6 +303,13 @@ export default function PhoneSimulator() {
       push("error", "// Dr. Dialtone is buffering emotionally");
     }
   }, [mindlineInput, push, speak, backToMenu, setModeSafe, playSfx]);
+
+  // Silence timer: if the caller goes quiet in a MindLine session, Doctor Dialtone escalates.
+  useEffect(() => {
+    if (mode !== "mindline_talk") return undefined;
+    const t = setTimeout(() => mindlineSend("__silence__"), 13000);
+    return () => clearTimeout(t);
+  }, [mode, mindlineSend]);
 
   // ---------------- Voicemail ----------------
   const refreshMessageLight = useCallback(async () => {
