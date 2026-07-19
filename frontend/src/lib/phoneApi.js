@@ -30,10 +30,9 @@ export const api = {
   deleteSchedule: (id) => http.delete(`/schedules/${id}`).then((r) => r.data),
   schedulesDue: () => http.get("/schedules/due").then((r) => r.data),
   scheduleFired: (id) => http.post(`/schedules/${id}/fired`).then((r) => r.data),
-  mindlineIntro: () => http.get("/mindline/intro").then((r) => r.data),
-  mindlineGreeting: (name) => http.post("/mindline/greeting", { name }).then((r) => r.data),
-  mindlineReply: (message) => http.post("/mindline/reply", { message }).then((r) => r.data),
-  mindlineSignoff: () => http.get("/mindline/signoff").then((r) => r.data),
+  mindlineStart: () => http.post("/mindline/start").then((r) => r.data),
+  mindlineTurn: (session_id, message) =>
+    http.post("/mindline/turn", { session_id, message }).then((r) => r.data),
   getVoicemails: () => http.get("/voicemails").then((r) => r.data),
   createVoicemail: (program_slug) => http.post("/voicemails", { program_slug }).then((r) => r.data),
   markVoicemail: (id) => http.patch(`/voicemails/${id}`).then((r) => r.data),
@@ -105,5 +104,79 @@ export function playBeep() {
     osc.connect(gain);
     osc.start();
     osc.stop(c.currentTime + 0.28);
+  } catch (e) {}
+}
+
+// Retro MindLine SFX (placeholders until Seed Audio 1.0)
+export function playStartup() {
+  try {
+    const c = ctx();
+    [523, 659, 784, 1047].forEach((f, i) => {
+      const g = c.createGain();
+      g.gain.value = 0.05;
+      g.connect(c.destination);
+      const o = c.createOscillator();
+      o.type = "square";
+      o.frequency.value = f;
+      o.connect(g);
+      o.start(c.currentTime + i * 0.11);
+      o.stop(c.currentTime + i * 0.11 + 0.1);
+    });
+  } catch (e) {}
+}
+
+export function playParity() {
+  try {
+    const c = ctx();
+    const g = c.createGain();
+    g.gain.value = 0.08;
+    g.connect(c.destination);
+    const o = c.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(1200, c.currentTime);
+    o.frequency.linearRampToValueAtTime(180, c.currentTime + 0.5);
+    o.frequency.linearRampToValueAtTime(1500, c.currentTime + 0.9);
+    o.connect(g);
+    o.start();
+    o.stop(c.currentTime + 1.0);
+    const o2 = c.createOscillator();
+    o2.type = "square";
+    o2.frequency.value = 95;
+    o2.connect(g);
+    o2.start();
+    o2.stop(c.currentTime + 1.0);
+  } catch (e) {}
+}
+
+export function playReboot() {
+  try {
+    const c = ctx();
+    const g = c.createGain();
+    g.gain.value = 0.06;
+    g.connect(c.destination);
+    const o = c.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(180, c.currentTime);
+    o.frequency.linearRampToValueAtTime(880, c.currentTime + 0.6);
+    o.connect(g);
+    o.start();
+    o.stop(c.currentTime + 0.65);
+  } catch (e) {}
+}
+
+export function playDisconnect() {
+  try {
+    const c = ctx();
+    [480, 620].forEach((f) => {
+      const g = c.createGain();
+      g.gain.value = 0.05;
+      g.connect(c.destination);
+      const o = c.createOscillator();
+      o.type = "sine";
+      o.frequency.value = f;
+      o.connect(g);
+      o.start();
+      o.stop(c.currentTime + 0.5);
+    });
   } catch (e) {}
 }

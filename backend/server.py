@@ -513,12 +513,9 @@ async def tts(payload: TTSRequest):
     return {"audio_base64": audio_b64, "format": "mp3", "voice": voice}
 
 
-class MindlineGreeting(BaseModel):
-    name: Optional[str] = None
-
-
-class MindlineReply(BaseModel):
-    message: str
+class MindlineTurn(BaseModel):
+    session_id: str
+    message: str = ""
 
 
 class VoicemailCreate(BaseModel):
@@ -536,25 +533,18 @@ VOICEMAIL_TEMPLATES = {
 }
 
 
-@api_router.get("/mindline/intro")
-async def mindline_intro():
-    return {"disclaimer": mindline.DISCLAIMER, "name_prompt": mindline.NAME_PROMPT,
-            "voice": mindline.DR_VOICE}
+@api_router.post("/mindline/start")
+async def mindline_start():
+    sid = mindline.new_session()
+    return {"session_id": sid, "disclaimer": mindline.DISCLAIMER,
+            "name_prompt": mindline.NAME_PROMPT, "voice": mindline.DR_VOICE}
 
 
-@api_router.post("/mindline/greeting")
-async def mindline_greeting(payload: MindlineGreeting):
-    return {"text": mindline.greeting(payload.name), "voice": mindline.DR_VOICE}
-
-
-@api_router.post("/mindline/reply")
-async def mindline_reply(payload: MindlineReply):
-    return {"reply": mindline.respond(payload.message), "voice": mindline.DR_VOICE}
-
-
-@api_router.get("/mindline/signoff")
-async def mindline_signoff():
-    return {"text": mindline.SIGNOFF, "voice": mindline.DR_VOICE}
+@api_router.post("/mindline/turn")
+async def mindline_turn(payload: MindlineTurn):
+    r = mindline.turn(payload.session_id, payload.message)
+    r["voice"] = mindline.DR_VOICE
+    return r
 
 
 # ----------------------------- Voicemail -----------------------------

@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Phone, PhoneOff, PhoneCall, Volume2, Bell, Mic } from "lucide-react";
 import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
-import { api, playTone, playDialTone, playBeep } from "../lib/phoneApi";
+import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect } from "../lib/phoneApi";
 import { useSpeechInput } from "../lib/useSpeechInput";
 
 const STATUS = {
@@ -15,6 +15,7 @@ const STATUS = {
   secret: "IN CALL",
   message: "IN CALL",
   mindline_name: "MINDLINE",
+  mindline_confirm: "MINDLINE",
   mindline_talk: "IN SESSION",
   magic8_ask: "MAGIC 8",
   magic8_answer: "MAGIC 8",
@@ -29,11 +30,15 @@ const STATUS = {
 // Interactive text modes that show the input + mic (typed or spoken).
 const INPUT_MODES = {
   mindline_name: { testid: "mindline-input", ph: "state your name…" },
+  mindline_confirm: { testid: "mindline-input", ph: "say yes… or your name again" },
   mindline_talk: { testid: "mindline-input", ph: "speak to Dr. Dialtone…" },
   magic8_ask: { testid: "magic8-input", ph: "ask your question, then press 8…" },
   kk_whos_there: { testid: "knock-input", ph: "say “who's there?”…" },
   kk_who: { testid: "knock-input", ph: "say “… who?”…" },
 };
+
+// MindLine server phase -> simulator mode.
+const PHASE_MODE = { await_name: "mindline_name", confirm: "mindline_confirm", talking: "mindline_talk" };
 
 const INTER_DIGIT_MS = 1300;
 const OPERATOR_VOICE = "nova"; // spoken IVR menu / operator prompts
@@ -73,6 +78,7 @@ export default function PhoneSimulator() {
   const incomingRef = useRef(false);
   const incomingSched = useRef(null);
   const kkJoke = useRef(null);
+  const mlSession = useRef({ id: null, phase: null });
 
   const offHook = mode !== "onhook";
 
@@ -193,70 +199,68 @@ export default function PhoneSimulator() {
   }, [openMenu, setBuf, setModeSafe]);
 
   // ---------------- MindLine (Dr. Dialtone) ----------------
+  const playSfx = useCallback((name) => {
+    if (name === "beep") playBeep();
+    else if (name === "parity") playParity();
+    else if (name === "reboot") playReboot();
+    else if (name === "disconnect") playDisconnect();
+    else if (name === "startup") playStartup();
+  }, []);
+
   const enterMindline = useCallback(async () => {
     currentLine.current = "therapy";
-    setModeSafe("mindline_name");
     setMindlineInput("");
+    setModeSafe("busy");
     try {
-      const intro = await api.mindlineIntro();
+      const r = await api.mindlineStart();
+      mlSession.current = { id: r.session_id, phase: "await_name" };
       push("system", "── MINDLINE ──");
-      push("program", `⚠ ${intro.disclaimer}`);
-      push("program", intro.name_prompt);
-      // Speak a short disclaimer (the full text stays on-screen) + the name prompt.
+      push("program", `⚠ ${r.disclaimer}`);
+      push("program", r.name_prompt);
+      setModeSafe("mindline_name");
+      playSfx("startup");
       speak(
         "MindLine is a comedy and entertainment experience. Doctor Dialtone is not a real doctor. " +
-          "For entertainment only. " + intro.name_prompt,
-        { voice: intro.voice }
+          "For entertainment only. " + r.name_prompt,
+        { voice: r.voice }
       );
     } catch (e) {
+      setModeSafe("mindline_name");
       push("error", "// MindLine is offline");
     }
-  }, [push, speak, setModeSafe]);
+  }, [push, speak, setModeSafe, playSfx]);
 
-  const submitMindlineName = useCallback(async (explicit) => {
-    const name = (typeof explicit === "string" ? explicit : mindlineInput).trim();
-    if (!name) return;
-    setMindlineInput("");
-    push("caller", name);
-    push("system", "…connecting to Dr. Dialtone…");
-    try {
-      const g = await api.mindlineGreeting(name);
-      push("program", `Dr. Dialtone: ${g.text}`);
-      setModeSafe("mindline_talk");
-      speak(g.text, { voice: g.voice }, () => playBeep());
-    } catch (e) {
-      push("error", `// Dr. Dialtone error: ${e?.message || e}`);
-    }
-  }, [mindlineInput, push, speak, setModeSafe]);
-
-  const sendMindline = useCallback(async (explicit) => {
+  // Universal MindLine turn: name entry, name confirmation, and live conversation.
+  const mindlineSend = useCallback(async (explicit) => {
     const msg = (typeof explicit === "string" ? explicit : mindlineInput).trim();
     if (!msg) return;
-    if (/\b(goodbye|good bye|hang up)\b/i.test(msg)) {
-      setMindlineInput("");
-      triggerExitConfirm();
-      return;
-    }
     setMindlineInput("");
     push("caller", msg);
+    const prevPhase = mlSession.current.phase;
+    setModeSafe("busy");
     try {
-      const r = await api.mindlineReply(msg);
-      push("program", `Dr. Dialtone: ${r.reply}`);
-      speak(r.reply, { voice: r.voice });
+      const r = await api.mindlineTurn(mlSession.current.id, msg);
+      mlSession.current.phase = r.phase;
+      if (r.sfx) playSfx(r.sfx);
+      push("program", `Dr. Dialtone: ${r.text}`);
+      if (!r.ended) setModeSafe(PHASE_MODE[r.phase] || "mindline_talk");
+      const finish = () => {
+        if (prevPhase === "confirm" && r.phase === "talking") playBeep();
+        if (r.ended) backToMenu();
+      };
+      speak(r.text, { voice: r.voice }, () => {
+        if (r.followup) {
+          push("program", `Dr. Dialtone: ${r.followup}`);
+          speak(r.followup, { voice: r.voice }, finish);
+        } else {
+          finish();
+        }
+      });
     } catch (e) {
+      setModeSafe("mindline_talk");
       push("error", "// Dr. Dialtone is buffering emotionally");
     }
-  }, [mindlineInput, push, speak]);
-
-  const leaveMindline = useCallback(async () => {
-    try {
-      const s = await api.mindlineSignoff();
-      push("program", `Dr. Dialtone: ${s.text}`);
-      speak(s.text, { voice: s.voice }, () => backToMenu());
-    } catch (e) {
-      backToMenu();
-    }
-  }, [push, speak, backToMenu]);
+  }, [mindlineInput, push, speak, backToMenu, setModeSafe, playSfx]);
 
   // ---------------- Voicemail ----------------
   const refreshMessageLight = useCallback(async () => {
@@ -371,12 +375,11 @@ export default function PhoneSimulator() {
 
   const submitCurrent = useCallback((val) => {
     const m = modeRef.current;
-    if (m === "mindline_name") submitMindlineName(val);
-    else if (m === "mindline_talk") sendMindline(val);
+    if (m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk") mindlineSend(val);
     else if (m === "magic8_ask") askMagic8(val);
     else if (m === "kk_whos_there") kkRespond(val);
     else if (m === "kk_who") kkReveal(val);
-  }, [submitMindlineName, sendMindline, askMagic8, kkRespond, kkReveal]);
+  }, [mindlineSend, askMagic8, kkRespond, kkReveal]);
 
   const startMic = useCallback(() => {
     if (listening) { stopListening(); return; }
@@ -595,7 +598,7 @@ export default function PhoneSimulator() {
     clearTimeout(digitTimer.current);
     const m = modeRef.current;
     const inCall = m === "result" || m === "secret" || m === "message";
-    const inMindline = m === "mindline_name" || m === "mindline_talk";
+    const inMindline = m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk";
     const inMagic8 = m === "magic8_ask" || m === "magic8_answer";
     const inKnock = m === "kk_whos_there" || m === "kk_who" || m === "kk_done";
     const inExperience = inCall || inMindline || inMagic8 || inKnock || m === "fortune_persona";
@@ -630,7 +633,7 @@ export default function PhoneSimulator() {
     }
 
     if (inMindline) {
-      if (d === "0") leaveMindline(); // type into the on-screen input to talk; 0 ends the session
+      if (d === "0") backToMenu(); // type or use the mic to talk; 0 returns to the menu
       return;
     }
 
@@ -681,7 +684,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, leaveMindline, askMagic8, enterMagic8, enterKnockKnock, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   const simulateScheduledCall = useCallback(() => {
     triggerScheduledRing({
