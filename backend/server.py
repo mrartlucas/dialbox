@@ -15,6 +15,7 @@ from emergentintegrations.llm.openai import OpenAITextToSpeech
 
 from seed_data import PERSONAS, PROGRAMS, SECRET_CODES
 import mindline
+import adventure
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -571,6 +572,32 @@ async def mindline_turn(payload: MindlineTurn):
             "created_at": now_iso(),
         })
     return r
+
+
+# ----------------------------- Dial 4 Adventure -----------------------------
+class AdventureStart(BaseModel):
+    story: Optional[str] = "starfall"
+
+
+class AdventureChoice(BaseModel):
+    session_id: str
+    choice: str
+
+
+@api_router.get("/adventure/stories")
+async def adventure_stories():
+    return adventure.list_stories()
+
+
+@api_router.post("/adventure/start")
+async def adventure_start(payload: AdventureStart):
+    sid, title, node = adventure.new_session(payload.story or "starfall")
+    return {"session_id": sid, "title": title, "node": node}
+
+
+@api_router.post("/adventure/choose")
+async def adventure_choose(payload: AdventureChoice):
+    return adventure.choose(payload.session_id, payload.choice)
 
 
 @api_router.get("/mindline/leaderboard")

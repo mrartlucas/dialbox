@@ -22,6 +22,8 @@ const STATUS = {
   kk_whos_there: "KNOCK KNOCK",
   kk_who: "KNOCK KNOCK",
   kk_done: "KNOCK KNOCK",
+  adventure_play: "ADVENTURE",
+  adventure_end: "THE END",
   exit_confirm: "END CALL?",
   call_ended: "CALL ENDED",
   incoming: "RINGING",
@@ -63,6 +65,15 @@ function parseVoiceCommand(text) {
 // so detect the embedded-preview case and guide the user to open a standalone tab.
 const IN_IFRAME = typeof window !== "undefined" && window.self !== window.top;
 
+// iOS restricts the Web Speech API to Safari only; guide users off iOS Chrome/etc.
+const UA = typeof navigator !== "undefined" ? navigator.userAgent : "";
+const IS_IOS = /iP(hone|ad|od)/.test(UA) ||
+  (/Macintosh/.test(UA) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1);
+const IS_SAFARI = /^((?!chrome|android|crios|fxios|edgios|opios).)*safari/i.test(UA);
+const IOS_NEEDS_SAFARI = IS_IOS && !IS_SAFARI;
+
+const VOICE_MODE_KEY = "dialbox_voice_mode"; // "tap" | "hold"
+
 const INTER_DIGIT_MS = 1300;
 const OPERATOR_VOICE = "nova"; // spoken IVR menu / operator prompts
 const ORACLE_VOICE = "shimmer"; // spoken Fortune Caller intro
@@ -88,7 +99,10 @@ export default function PhoneSimulator() {
   const [incoming, setIncoming] = useState(false);
   const [mindlineInput, setMindlineInput] = useState("");
   const [voiceBlocked, setVoiceBlocked] = useState(false);
-  const { supported: speechSupported, listening, listen, stop: stopListening } = useSpeechInput();
+  const [voiceMode, setVoiceMode] = useState(
+    () => (typeof localStorage !== "undefined" && localStorage.getItem(VOICE_MODE_KEY)) || "tap"
+  );
+  const { supported: speechSupported, listening, start: startListening, stop: stopListening } = useSpeechInput();
 
   const audioRef = useRef(null);
   const ringTimer = useRef(null);
@@ -104,6 +118,7 @@ export default function PhoneSimulator() {
   const kkJoke = useRef(null);
   const kkTold = useRef([]);
   const mlSession = useRef({ id: null, phase: null });
+  const advSession = useRef({ id: null, node: null });
   const holdTalkRef = useRef(null);
 
   const offHook = mode !== "onhook";
@@ -424,6 +439,69 @@ export default function PhoneSimulator() {
       "Press five for another joke. Press zero for the main menu.");
   }, [mindlineInput, push, deliver, setModeSafe]);
 
+  // ---------------- Dial 4 Adventure ----------------
+  const renderAdvNode = useCallback((node) => {
+    advSession.current.node = node.node_id;
+    push("program", node.text);
+    if (node.inventory && node.inventory.length)
+      push("system", `🎒 you carry: ${node.inventory.join(", ")}`);
+    if (node.ended) {
+      setModeSafe("adventure_end");
+      const tag = node.ending === "win" ? "VICTORY" : "THE END";
+      push("system", `── ${tag} ── Press 1 to play again · 0 for the main menu · or hang up.`);
+      lastSpoken.current = {
+        text: node.text,
+        opts: { voice: node.voice },
+        optionsText: "That is the end of this adventure. Press one to play again, or press zero for the main menu.",
+      };
+      speak(node.text, { voice: node.voice }, () =>
+        speak("That is the end of this adventure. Press one to play again, or press zero for the main menu.",
+          { voice: OPERATOR_VOICE }));
+      return;
+    }
+    (node.choices || []).forEach((c) => push("line", `  ${c.key}  ${c.label}`));
+    push("system", "Press a number to choose · \u2731 to hear it again · 0 to leave.");
+    setModeSafe("adventure_play");
+    const choicesText = (node.choices || []).map((c) => `For ${c.label}, press ${c.key}.`).join(" ");
+    const optionsText = choicesText + " Or press zero to leave the adventure.";
+    lastSpoken.current = { text: node.text, opts: { voice: node.voice }, optionsText };
+    speak(node.text, { voice: node.voice }, () => speak(optionsText, { voice: OPERATOR_VOICE }));
+  }, [push, speak, setModeSafe]);
+
+  const enterAdventure = useCallback(async () => {
+    currentLine.current = "adventure";
+    setModeSafe("busy");
+    push("system", "── DIAL 4 ADVENTURE ──");
+    try {
+      const r = await api.adventureStart("starfall");
+      advSession.current = { id: r.session_id, node: null };
+      push("program", `\u25b6 ${r.title}`);
+      renderAdvNode(r.node);
+    } catch (e) {
+      setModeSafe("message");
+      push("error", "// the adventure reel jammed");
+      push("system", "Dial 0 for the main menu, or hang up.");
+    }
+  }, [push, renderAdvNode, setModeSafe]);
+
+  const advChoose = useCallback(async (key) => {
+    if (!advSession.current.id) return;
+    setModeSafe("busy");
+    push("caller", `chose ${key}`);
+    try {
+      const r = await api.adventureChoose(advSession.current.id, key);
+      if (r.error) {
+        push("error", "// the signal was lost in the static");
+        backToMenu();
+        return;
+      }
+      renderAdvNode(r);
+    } catch (e) {
+      setModeSafe("adventure_play");
+      push("error", "// static on the line — choose again");
+    }
+  }, [push, renderAdvNode, backToMenu, setModeSafe]);
+
   const submitCurrent = useCallback((val) => {
     const m = modeRef.current;
     if (m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk") mindlineSend(val);
@@ -432,9 +510,9 @@ export default function PhoneSimulator() {
     else if (m === "kk_who") kkReveal(val);
   }, [mindlineSend, askMagic8, kkRespond, kkReveal]);
 
-  const micDown = useCallback(() => {
+  const micStart = useCallback(() => {
     if (listening) return;
-    listen(
+    startListening(
       (text) => {
         if (holdTalkRef.current) holdTalkRef.current(text);
       },
@@ -444,23 +522,37 @@ export default function PhoneSimulator() {
         }
       }
     );
-  }, [listening, listen]);
+  }, [listening, startListening]);
 
-  const micUp = useCallback(() => {
+  const micStop = useCallback(() => {
     stopListening();
   }, [stopListening]);
 
-  // Safety: releasing the mouse/finger anywhere stops recording (not just on the button).
+  // Tap mode: tap once to start, tap again to stop & send.
+  const micToggle = useCallback(() => {
+    if (listening) stopListening();
+    else micStart();
+  }, [listening, stopListening, micStart]);
+
+  const changeVoiceMode = useCallback((m) => {
+    if (listening) stopListening();
+    setVoiceMode(m);
+    try {
+      localStorage.setItem(VOICE_MODE_KEY, m);
+    } catch (e) {}
+  }, [listening, stopListening]);
+
+  // Safety (hold mode only): releasing the mouse/finger anywhere stops recording.
   useEffect(() => {
-    if (!listening) return undefined;
-    const up = () => micUp();
+    if (!listening || voiceMode !== "hold") return undefined;
+    const up = () => micStop();
     window.addEventListener("mouseup", up);
     window.addEventListener("touchend", up);
     return () => {
       window.removeEventListener("mouseup", up);
       window.removeEventListener("touchend", up);
     };
-  }, [listening, micUp]);
+  }, [listening, voiceMode, micStop]);
 
   // ---------------- Universal exit system (## / Goodbye) ----------------
   const enterLine = useCallback((slug) => {
@@ -473,10 +565,12 @@ export default function PhoneSimulator() {
       enterMagic8();
     } else if (slug === "knockknock") {
       enterKnockKnock();
+    } else if (slug === "adventure") {
+      enterAdventure();
     } else {
       backToMenu();
     }
-  }, [loadFortunePersonas, enterMindline, enterMagic8, enterKnockKnock, backToMenu, setModeSafe]);
+  }, [loadFortunePersonas, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, backToMenu, setModeSafe]);
 
   const triggerExitConfirm = useCallback(() => {
     stopAudio();
@@ -568,6 +662,9 @@ export default function PhoneSimulator() {
       } else if (res.type === "program" && res.interaction === "knockknock") {
         push("program", `Connecting to ${res.name}...`);
         enterKnockKnock();
+      } else if (res.type === "program" && res.interaction === "adventure") {
+        push("program", `Connecting to ${res.name}...`);
+        enterAdventure();
       } else if (res.type === "program" && res.has_personas) {
         currentLine.current = "fortune";
         setModeSafe("fortune_persona");
@@ -674,7 +771,8 @@ export default function PhoneSimulator() {
     const inMindline = m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk";
     const inMagic8 = m === "magic8_ask" || m === "magic8_answer";
     const inKnock = m === "kk_whos_there" || m === "kk_who" || m === "kk_done";
-    const inExperience = inCall || inMindline || inMagic8 || inKnock || m === "fortune_persona";
+    const inAdventure = m === "adventure_play" || m === "adventure_end";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || m === "fortune_persona";
 
     // ## (double pound) = universal exit; opens the End Call? confirmation.
     if (d === "#") {
@@ -722,6 +820,19 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (m === "adventure_play") {
+      if (d === "0") backToMenu();
+      else if (d === "*") replayLast();
+      else advChoose(d);
+      return;
+    }
+    if (m === "adventure_end") {
+      if (d === "1") enterAdventure();
+      else if (d === "*") replayLast();
+      else if (d === "0") backToMenu();
+      return;
+    }
+
     if (d === "*") {
       const b = bufferRef.current;
       if (b) {
@@ -757,7 +868,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, enterAdventure, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).
@@ -927,25 +1038,72 @@ export default function PhoneSimulator() {
         {/* Keypad */}
         <Keypad onPress={onKey} disabled={!offHook || mode === "busy"} />
 
-        {/* Global push-to-talk — hold to say a number/command or speak (hands-free) */}
+        {/* Global voice input — tap-to-talk or hold-to-talk (hands-free); mode is switchable */}
         {speechSupported && (
-          <button
-            type="button"
-            data-testid="hold-to-talk-btn"
-            onMouseDown={(e) => { e.preventDefault(); micDown(); }}
-            onMouseUp={micUp}
-            onTouchStart={(e) => { e.preventDefault(); micDown(); }}
-            onTouchEnd={(e) => { e.preventDefault(); micUp(); }}
-            disabled={!offHook || mode === "busy"}
-            title="Hold to talk — say a number to dial, or speak your answer"
-            className={`tactile mt-3 flex w-full select-none items-center justify-center gap-2 rounded-sm border-2 py-3 font-mono text-xs font-bold uppercase tracking-widest disabled:opacity-40 ${
-              listening
-                ? "border-red-500 bg-red-500/15 text-red-400 animate-pulse"
-                : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-[#39ff14] hover:text-[#39ff14]"
-            }`}
+          <div className="mt-3">
+            <button
+              type="button"
+              data-testid="hold-to-talk-btn"
+              onMouseDown={voiceMode === "hold" ? (e) => { e.preventDefault(); micStart(); } : undefined}
+              onMouseUp={voiceMode === "hold" ? micStop : undefined}
+              onTouchStart={voiceMode === "hold" ? (e) => { e.preventDefault(); micStart(); } : undefined}
+              onTouchEnd={voiceMode === "hold" ? (e) => { e.preventDefault(); micStop(); } : undefined}
+              onClick={voiceMode === "tap" ? micToggle : undefined}
+              disabled={!offHook || mode === "busy"}
+              title={voiceMode === "tap"
+                ? "Tap to talk — say a number to dial, or speak your answer; tap again to send"
+                : "Hold to talk — say a number to dial, or speak your answer"}
+              className={`tactile flex w-full select-none items-center justify-center gap-2 rounded-sm border-2 py-3 font-mono text-xs font-bold uppercase tracking-widest disabled:opacity-40 ${
+                listening
+                  ? "border-red-500 bg-red-500/15 text-red-400 animate-pulse"
+                  : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-[#39ff14] hover:text-[#39ff14]"
+              }`}
+            >
+              <Mic className="h-4 w-4" />{" "}
+              {listening
+                ? (voiceMode === "tap" ? "Listening… tap to send" : "Listening… release to send")
+                : (voiceMode === "tap" ? "Tap to Talk" : "Hold to Talk")}
+            </button>
+
+            {/* Voice-mode switch */}
+            <div className="mt-2 flex items-center justify-center gap-2 font-mono text-[9px] uppercase tracking-widest text-neutral-500">
+              <span>voice mode:</span>
+              <button
+                type="button"
+                data-testid="voice-mode-tap-btn"
+                onClick={() => changeVoiceMode("tap")}
+                className={`rounded-sm border px-2 py-0.5 ${
+                  voiceMode === "tap"
+                    ? "border-[#39ff14] bg-[#39ff14]/15 text-[#39ff14]"
+                    : "border-neutral-800 text-neutral-500 hover:text-neutral-300"
+                }`}
+              >
+                Tap
+              </button>
+              <button
+                type="button"
+                data-testid="voice-mode-hold-btn"
+                onClick={() => changeVoiceMode("hold")}
+                className={`rounded-sm border px-2 py-0.5 ${
+                  voiceMode === "hold"
+                    ? "border-[#39ff14] bg-[#39ff14]/15 text-[#39ff14]"
+                    : "border-neutral-800 text-neutral-500 hover:text-neutral-300"
+                }`}
+              >
+                Hold
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* iOS: Web Speech only works in Safari */}
+        {IOS_NEEDS_SAFARI && offHook && (
+          <div
+            data-testid="ios-safari-hint"
+            className="mt-2 block rounded-sm border border-[#ffb000]/40 bg-[#ffb000]/10 px-2 py-1.5 text-center font-mono text-[10px] uppercase leading-relaxed tracking-widest text-[#ffb000]"
           >
-            <Mic className="h-4 w-4" /> {listening ? "Listening… release to send" : "Hold to Talk"}
-          </button>
+            🎤 on iPhone, voice works in Safari only — open DialBox in Safari. Keypad & typing work anywhere.
+          </div>
         )}
 
         {/* Hint */}
@@ -962,7 +1120,7 @@ export default function PhoneSimulator() {
         )}
 
         <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-neutral-600">
-          {offHook ? "dial or hold Talk to say a number · \u2731 confirms a longer number" : "lift the handset to open the line"}
+          {offHook ? "dial or use Talk to say a number · \u2731 confirms a longer number" : "lift the handset to open the line"}
         </p>
 
         {/* Hook control */}

@@ -1,17 +1,18 @@
 import { useCallback, useRef, useState } from "react";
 
-// Push-to-talk laptop-mic input via the browser Web Speech API (Chrome/Edge).
-// Hold to record (like a phone/walkie-talkie): recognition auto-restarts while the
-// button is held (Chrome tends to end on the first silence), and the accumulated
-// transcript is submitted once on release.
-// Returns { supported, listening, listen(onResult), stop() }.
+// Laptop/phone-mic voice input via the browser Web Speech API (Chrome/Edge, iOS Safari).
+// Mode-agnostic: start(onResult, onError) begins listening and keeps the mic open
+// (Chrome tends to end on the first silence, so we auto-restart while active); stop()
+// ends the session and submits the accumulated transcript once. The UI decides whether
+// start/stop is driven by hold (press & release) or tap (tap on / tap off).
+// Returns { supported, listening, start(onResult, onError), stop() }.
 export function useSpeechInput() {
   const SR =
     typeof window !== "undefined" &&
     (window.SpeechRecognition || window.webkitSpeechRecognition);
   const supported = !!SR;
   const [listening, setListening] = useState(false);
-  const holdingRef = useRef(false);
+  const activeRef = useRef(false);
   const finalRef = useRef("");
   const cbRef = useRef(null);
   const errRef = useRef(null);
@@ -33,8 +34,8 @@ export function useSpeechInput() {
       if (errRef.current) errRef.current(e.error);
     };
     rec.onend = () => {
-      // still held -> keep listening by starting a fresh recogniser
-      if (holdingRef.current) {
+      // still active -> keep listening by starting a fresh recogniser
+      if (activeRef.current) {
         const nr = build();
         recRef.current = nr;
         try {
@@ -51,10 +52,10 @@ export function useSpeechInput() {
     return rec;
   }, [SR]);
 
-  const listen = useCallback(
+  const start = useCallback(
     (onResult, onError) => {
-      if (!SR || holdingRef.current) return;
-      holdingRef.current = true;
+      if (!SR || activeRef.current) return;
+      activeRef.current = true;
       finalRef.current = "";
       cbRef.current = onResult;
       errRef.current = onError;
@@ -64,20 +65,20 @@ export function useSpeechInput() {
       try {
         rec.start();
       } catch (e) {
-        holdingRef.current = false;
+        activeRef.current = false;
         setListening(false);
       }
     },
     [SR, build]
   );
 
-  // Release the button -> stop holding -> onend fires and submits the transcript.
+  // Stop listening -> onend fires and submits the accumulated transcript.
   const stop = useCallback(() => {
-    holdingRef.current = false;
+    activeRef.current = false;
     try {
       if (recRef.current) recRef.current.stop();
     } catch (e) {}
   }, []);
 
-  return { supported, listening, listen, stop };
+  return { supported, listening, start, stop };
 }
