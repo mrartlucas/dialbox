@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 4 full-stack verification of DialBox rebrand, Magic 8 Dial (key 8), and Universal Exit ('##' + 'Goodbye'). Backend: 60/60 pytest passed (10 new + 50 regression). New test file test_iteration4.py verifies /api/menu greeting contains 'DialBox', POST /session/dial {digits:'8'} -> {type:program, slug:magic8, interaction:magic8}, POST /programs/magic8 returns one of the 20 canonical answers with voice, menu item key '8' exists for magic8, and random variety across 15 calls yields >=2 unique answers. Regression: key 1 still routes to Fortune Caller, key 3 still to MindLine (interaction=mindline), '*' still to voicemail. Frontend (Playwright, no JS errors): Lift handset shows DIALBOX brand with 9 menu items including 'Magic 8 Dial' at key 8; dial 8 -> 'MAGIC 8 DIAL' section with 'Ask one question. Then press 8.' prompt; pressing 8 -> pool-ball emoji (🎱) + answer displayed in CRT console; '##' (two rapid pounds) from magic8_answer -> 'END CALL?' confirmation ('Are you sure you want to end this call? Press 1 to continue, press 2 to end.'); pressing 2 -> 'Call ended.'; pressing 3 returns to DialBox network menu. MindLine flow: dial 3 -> MindLine, name Alice submitted -> Dr. Dialtone greeting; sending 'Goodbye' via mindline-send-btn -> same universal END CALL? confirmation. Fortune: dial 1 -> oracle list rendered; 0 returns to main menu. '*' from dialtone -> voicemail section. All Universal Exit assertions pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PhoneSimulator - Magic 8 Dial input", "issue": "Text input for typing a question in Magic 8 mode is NOT rendered. The conditional at PhoneSimulator.jsx line ~693 only renders the mindline-input when mode is 'mindline_name' or 'mindline_talk'. In modes 'magic8_ask' / 'magic8_answer' no input element exists, so the review-spec behaviour 'user types a question in the input and presses keypad 8' is not possible via the UI. askMagic8() still reads mindlineInput state (which stays empty), so pressing 8 returns an answer with an empty question — the Magic 8 endpoint tolerates missing questions so the flow still functionally produces a mysterious answer, but the user cannot enter a question. Fix: extend the input's mode guard to include 'magic8_ask' with an appropriate placeholder like 'ask your question…', OR document that the question is verbal-only. Priority: MEDIUM.", "selector": "[data-testid=mindline-input]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "Render the question input in Magic 8 modes (magic8_ask) so users can actually type a question. Extend the JSX conditional on ~line 693 in PhoneSimulator.jsx to include mode==='magic8_ask' (and optionally magic8_answer), with a Magic 8-flavoured placeholder. Also either reuse mindlineInput state (already wired in askMagic8) or introduce a dedicated state var."
+  ],
+  "critical_code_review_comments": [
+    "PhoneSimulator.jsx is 761 lines — still growing. Recommend extracting per-line hooks (useMindline, useMagic8, useExitFlow) and moving the exit-confirm/call-ended state machine to a reducer.",
+    "The 'question' text input for Magic 8 is missing (see UI bug above).",
+    "In Keypad.jsx testids are 'keypad-button-{digit|star|hash}' but the review request referred to 'key-8'-style selectors. Consider standardising testid naming.",
+    "seed_data.py addition of magic8 program relies on server.py seed() which uses $set for content (name/interaction/menu_key) — good; new magic8 interaction will propagate on restart.",
+    "askMagic8 sets mode='busy' during API call — this disables the keypad; that's fine but a very fast backend can flash the UI. Acceptable.",
+    "triggerExitConfirm uses stopAudio + clearTimeout + set mode; the '#' double-press detection window is 650ms, which may feel tight on slower devices — consider 900-1000ms."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/test_reports/pytest/iter4_results.xml",
+    "/app/test_reports/iteration_4.json"
+  ],
+  "success_rate": {"backend": "100% (60/60)", "frontend": "~95% (Magic 8 input UI missing; all other flows including universal exit work)"},
+  "test_credentials": "N/A (no auth). EMERGENT_LLM_KEY in backend/.env.",
+  "seed_data_creation": "None new. Programs collection now includes 9 items with 'magic8' seeded via server.py startup (verified via /api/menu and /api/programs).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Keypad testids follow pattern [data-testid=keypad-button-{digit|star|hash}] NOT 'key-8'. mindline-input is only rendered in modes 'mindline_name' / 'mindline_talk'; magic8 modes have no visible text input (bug). Magic 8 answers are prefixed with pool-ball emoji U+1F3B1. Universal exit '##' requires two '#' presses within ~650ms via hashPending timer. Backend Magic 8 endpoint: POST /api/programs/magic8 {question?} -> {answer, voice}. Total backend tests now: backend/tests/backend_test.py + test_iteration3.py + test_iteration4.py = 60. Run: `pytest /app/backend/tests -v`.",
+  "rca of the issue": "Magic 8 UI input missing: conditional render at PhoneSimulator.jsx ~L693 (`{(mode === 'mindline_name' || mode === 'mindline_talk') && (...)}`) omits 'magic8_ask'/'magic8_answer'. The state var mindlineInput is already read by askMagic8() at L294 but no input is mounted to accept keystrokes, so the user's question is always empty. Fix: add magic8_ask to the guard and update placeholder text."
+}
