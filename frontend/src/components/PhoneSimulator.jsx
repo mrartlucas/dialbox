@@ -358,12 +358,12 @@ export default function PhoneSimulator() {
       kkJoke.current = j;
       setModeSafe("kk_whos_there");
       push("program", "Knock, knock.");
-      deliver("Knock, knock.", { voice: j.voice }, "Say “who's there?” — type it or tap the mic.");
+      speak("Knock, knock.", { voice: j.voice });
     } catch (e) {
       setModeSafe("kk_whos_there");
       push("error", "// nobody's home (engine error)");
     }
-  }, [push, deliver, setModeSafe]);
+  }, [push, speak, setModeSafe]);
 
   const kkRespond = useCallback((explicit) => {
     const said = (typeof explicit === "string" ? explicit : mindlineInput).trim();
@@ -373,8 +373,8 @@ export default function PhoneSimulator() {
     if (!j) return;
     setModeSafe("kk_who");
     push("program", `${j.name}.`);
-    deliver(`${j.name}.`, { voice: j.voice }, `Say “${j.name} who?”`);
-  }, [mindlineInput, push, deliver, setModeSafe]);
+    speak(`${j.name}.`, { voice: j.voice });
+  }, [mindlineInput, push, speak, setModeSafe]);
 
   const kkReveal = useCallback((explicit) => {
     const said = (typeof explicit === "string" ? explicit : mindlineInput).trim();
@@ -397,13 +397,17 @@ export default function PhoneSimulator() {
     else if (m === "kk_who") kkReveal(val);
   }, [mindlineSend, askMagic8, kkRespond, kkReveal]);
 
-  const startMic = useCallback(() => {
-    if (listening) { stopListening(); return; }
+  const micDown = useCallback(() => {
+    if (listening) return;
     listen((text) => {
       setMindlineInput(text);
       submitCurrent(text);
     });
-  }, [listening, listen, stopListening, submitCurrent]);
+  }, [listening, listen, submitCurrent]);
+
+  const micUp = useCallback(() => {
+    stopListening();
+  }, [stopListening]);
 
   // ---------------- Universal exit system (## / Goodbye) ----------------
   const enterLine = useCallback((slug) => {
@@ -822,9 +826,13 @@ export default function PhoneSimulator() {
               <button
                 type="button"
                 data-testid="mic-btn"
-                onClick={startMic}
-                title="Talk using your microphone"
-                className={`tactile shrink-0 rounded-sm border-2 px-4 ${
+                onMouseDown={(e) => { e.preventDefault(); micDown(); }}
+                onMouseUp={micUp}
+                onMouseLeave={micUp}
+                onTouchStart={(e) => { e.preventDefault(); micDown(); }}
+                onTouchEnd={(e) => { e.preventDefault(); micUp(); }}
+                title="Hold to talk (push-to-talk)"
+                className={`tactile shrink-0 select-none rounded-sm border-2 px-4 ${
                   listening
                     ? "border-[#ffb000] bg-[#ffb000]/20 text-[#ffb000] amber-glow animate-pulse"
                     : "border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-[#39ff14] hover:text-[#39ff14]"
