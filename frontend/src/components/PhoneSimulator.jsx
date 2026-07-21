@@ -38,6 +38,12 @@ const STATUS = {
   count_category: "COUNT",
   count_number: "COUNT",
   count_magic: "MATHEMAGIC",
+  count_magic_menu: "MATHEMAGIC",
+  count_magic_37: "MATHEMAGIC",
+  count_magic_kaprekar: "MATHEMAGIC",
+  sphinx_menu: "THE SPHINX",
+  sphinx_gate: "THE GATES",
+  sphinx_riddle: "CHALLENGE",
   trivia_play: "TRIVIA",
   trivia_end: "GAME OVER",
   exit_confirm: "END CALL?",
@@ -60,6 +66,9 @@ const INPUT_MODES = {
   cyndi_question: { testid: "cyndi-question-input", ph: "what's going on? ask one thing…" },
   count_number: { testid: "count-number-input", ph: "enter a number (birth year, a date…) then Send or #" },
   count_magic: { testid: "count-magic-input", ph: "enter your final answer, then Send or #" },
+  count_magic_37: { testid: "count-magic-input", ph: "enter your result, then Send or #" },
+  count_magic_kaprekar: { testid: "count-magic-input", ph: "enter any 4-digit number, then Send or #" },
+  sphinx_riddle: { testid: "sphinx-riddle-input", ph: "speak or type your answer, then Send" },
 };
 
 // Cyndi & Louise topic menu — keypad 1-9 map to these (Fortune Caller Oracle Bible).
@@ -86,6 +95,53 @@ const COUNT_CATEGORIES = [
   "Lucky Numbers", "Important Dates", "Difficult Decisions", "General",
 ];
 const MATHEMAGIC_ANSWER = "1089";
+
+// The Sphinx — Three Gates (symbolic choices, keys 1-4) + a curated riddle bank for the Challenge.
+const SPHINX_GATES = [
+  { key: "mind", title: "The Gate of Mind", prompt: "What do you carry into the dark?",
+    choices: ["a Lantern", "a Map", "a Key", "a Blade"] },
+  { key: "heart", title: "The Gate of Heart", prompt: "Which sound stops you where you stand?",
+    choices: ["a distant Bell", "a Whisper", "sudden Laughter", "utter Silence"] },
+  { key: "path", title: "The Gate of Path", prompt: "At the fork, which way?",
+    choices: ["the Climbing Road", "the River", "the Tunnel", "to wait for Dawn"] },
+];
+const SPHINX_RIDDLES = [
+  { q: "What must be broken before you can use it?", a: ["egg"] },
+  { q: "I am tall when I am young, and short when I am old. What am I?", a: ["candle"] },
+  { q: "What has hands, but cannot clap?", a: ["clock", "watch"] },
+  { q: "What has a neck but no head?", a: ["bottle", "shirt"] },
+  { q: "What gets wetter the more it dries?", a: ["towel"] },
+  { q: "What has keys but opens no locks?", a: ["piano", "keyboard", "map"] },
+  { q: "The more you take, the more you leave behind. What am I?", a: ["footstep", "step", "footprint"] },
+  { q: "What has an eye but cannot see?", a: ["needle", "storm", "hurricane"] },
+];
+
+// Kaprekar's routine: any 4-digit number (with 2+ distinct digits) collapses to 6174.
+function kaprekarSteps(numStr) {
+  let cur = (numStr || "").replace(/\D/g, "").slice(0, 4).padStart(4, "0");
+  const steps = [];
+  let guard = 0;
+  while (cur !== "6174" && guard < 12) {
+    const ds = cur.split("").sort();
+    const asc = ds.join("");
+    const desc = ds.slice().reverse().join("");
+    const diff = parseInt(desc, 10) - parseInt(asc, 10);
+    if (diff === 0) return { steps, landed: "0000" };
+    const diffStr = String(diff).padStart(4, "0");
+    steps.push(`${desc} − ${asc} = ${diffStr}`);
+    cur = diffStr;
+    guard++;
+  }
+  return { steps, landed: cur };
+}
+function shuffled(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 // Every Tuesday the Master rests and Spirit Taco takes key 5 (caller's local day).
 const IS_TUESDAY = new Date().getDay() === 2;
@@ -197,6 +253,7 @@ export default function PhoneSimulator() {
   const cyndiData = useRef({ name: "", topic: "General Reading", question: "" });
   const nyxStars = useRef([]);
   const countData = useRef({ category: "General" });
+  const sphinxState = useRef({ step: 0, gates: {}, deck: [], idx: 0, correct: 0, asked: 0 });
   const triviaSession = useRef({ id: null, num: 4 });
   const advStories = useRef([]);
   const holdTalkRef = useRef(null);
@@ -934,15 +991,87 @@ export default function PhoneSimulator() {
     speak(spoken, { voice: "echo" });
   }, [push, speak, setModeSafe]);
 
-  const startCountMagic = useCallback(() => {
+  const startMagic1089 = useCallback(() => {
     setMindlineInput("");
     setModeSafe("count_magic");
-    push("program", "Count Clairvoyant: Mathemagic — my darkest art. Think of a three-digit number whose first and last digits differ by at least two. Do not speak it.");
+    push("program", "Count Clairvoyant: The 1089 Prophecy. Think of a three-digit number whose first and last digits differ by at least two. Do not speak it.");
     push("program", "Reverse it. Subtract the smaller from the larger. Reverse THAT result, and add the two together.");
     push("system", "I have sealed my prophecy in the crypt. Enter your final answer, then Send or #.");
-    const spoken = "Mathemagic. My darkest art. Think of a three digit number whose first and last digits differ by at least two. Do not speak it. Reverse it. Subtract the smaller from the larger. Now reverse that result, and add the two together. I have already sealed my prophecy in the crypt. Enter your final answer, then send.";
+    const spoken = "The one thousand eighty nine prophecy. Think of a three digit number whose first and last digits differ by at least two. Do not speak it. Reverse it. Subtract the smaller from the larger. Now reverse that result, and add the two together. I have already sealed my prophecy in the crypt. Enter your final answer, then send.";
     speak(spoken, { voice: "echo" });
   }, [push, speak, setModeSafe]);
+
+  const startMagic37 = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("count_magic_37");
+    push("program", "Count Clairvoyant: The Eternal 37. Choose a three-digit number of THREE IDENTICAL digits — 111, 222, all the way to 999.");
+    push("program", "Add its three digits together. Now divide your number by that sum.");
+    push("system", "I already know your answer. Enter your result, then Send or #.");
+    const spoken = "The eternal thirty seven. Choose a three digit number of three identical digits. One eleven, two twenty two, all the way to nine ninety nine. Add its three digits together. Now divide your number by that sum. I already know your answer. Enter your result, then send.";
+    speak(spoken, { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
+  const startMagicKaprekar = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("count_magic_kaprekar");
+    push("program", "Count Clairvoyant: The Black Hole of 6174. Give me ANY four-digit number — but not four of the same digit.");
+    push("system", "Enter your four digits, then Send or #, and watch no number escape.");
+    const spoken = "The black hole of sixty one seventy four. Give me any four digit number, but not four of the same digit. Enter your four digits, then send, and watch as no number escapes the void.";
+    speak(spoken, { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
+  const startCountMagic = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("count_magic_menu");
+    push("program", "Count Clairvoyant: Choose your trick. The numbers obey me either way.");
+    push("line", "  1  The 1089 Prophecy");
+    push("line", "  2  The Eternal 37");
+    push("line", "  3  The Black Hole of 6174");
+    push("system", "Press 1-3 to choose · 0 to go back.");
+    speak("Choose your trick. Press one for the one thousand eighty nine prophecy, two for the eternal thirty seven, or three for the black hole of sixty one seventy four. Press zero to go back.",
+      { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
+  const reveal37 = useCallback((answer) => {
+    const clean = (answer || "").replace(/\D/g, "");
+    setMindlineInput("");
+    setModeSafe("result");
+    let line, speech;
+    if (clean === "37") {
+      line = "Count Clairvoyant: Thirty-seven. It is ALWAYS thirty-seven — a number as loyal as the grave. Your arithmetic pleases the dead.";
+      speech = "Thirty seven. It is always thirty seven. A number as loyal as the grave. Your arithmetic pleases the dead.";
+    } else {
+      line = `Count Clairvoyant: You bring me ${clean || "nothing"}, yet the true answer is always thirty-seven. Check your identical digits and divide once more, mortal.`;
+      speech = `You bring me ${clean || "nothing"}, yet the true answer is always thirty seven. Check your identical digits and divide once more, mortal.`;
+    }
+    push("program", line);
+    push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+    deliver(speech, { voice: "echo" }, "To hear that again, press star. For another oracle, press pound. For the main menu, dial 0.");
+  }, [push, deliver, setModeSafe]);
+
+  const revealKaprekar = useCallback((number) => {
+    const clean = (number || "").replace(/\D/g, "");
+    const distinct = new Set(clean.split("")).size;
+    setMindlineInput("");
+    if (clean.length < 4 || distinct < 2) {
+      push("program", "Count Clairvoyant: The void is particular. Bring me FOUR digits, and not all alike.");
+      speak("The void is particular. Bring me four digits, and not all alike.", { voice: "echo" });
+      return; // stay in count_magic_kaprekar
+    }
+    setModeSafe("result");
+    const { steps, landed } = kaprekarSteps(clean);
+    steps.forEach((s) => push("line", `  ${s}`));
+    const win = landed === "6174";
+    const line = win
+      ? `Count Clairvoyant: In ${steps.length} step${steps.length === 1 ? "" : "s"}, your number falls into the Black Hole… six thousand one hundred seventy-four. No four-digit number, however proud, escapes it.`
+      : "Count Clairvoyant: Curious — four alike collapse to nothing. Try a number with variety, and the void shall claim it.";
+    push("program", line);
+    push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+    const speech = win
+      ? `In ${steps.length} steps, your number falls into the black hole. Six thousand one hundred seventy four. No four digit number, however proud, escapes it.`
+      : "Curious. Four alike collapse to nothing. Try a number with variety, and the void shall claim it.";
+    deliver(speech, { voice: "echo" }, "To hear that again, press star. For another oracle, press pound. For the main menu, dial 0.");
+  }, [push, speak, deliver, setModeSafe]);
 
   const startCount = useCallback(() => {
     currentLine.current = "fortune";
@@ -954,6 +1083,155 @@ export default function PhoneSimulator() {
     push("system", "Press 1 or 2 · 0 to return to the main menu.");
     speak("Ahhh, a living mind, warm with numbers. Press one for a number reading, or press two for mathemagic, and I shall read your mind. Press zero to leave.",
       { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
+  // ---------------- The Sphinx: Three Gates + Challenge (riddle game) ----------------
+  const generateGatesReading = useCallback(async () => {
+    setModeSafe("busy");
+    const g = sphinxState.current.gates;
+    push("program", "The three gates close behind you… the Sphinx considers…");
+    try {
+      const res = await api.sphinxGates(g.mind, g.heart, g.path);
+      const signOff = res.sign_off ? ` ${res.sign_off}` : "";
+      push("program", res.text);
+      if (res.sign_off) push("program", res.sign_off);
+      setModeSafe("result");
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(`${res.text}${signOff}`, { voice: res.voice || "ash" },
+        "To hear that again, press star. For another oracle, press pound. For the main menu, dial 0.");
+    } catch (e) {
+      setModeSafe("result");
+      if (isOutOfCredits(e)) {
+        push("error", "// out of minutes — the Universal Key needs more balance");
+        push("system", "Add balance: Profile \u2192 Universal Key \u2192 Add Balance. Then dial again.");
+      } else {
+        push("error", "// the Sphinx fell silent (engine error)");
+        push("system", "Press \u2731 to try again · # for another oracle · 0 for the main menu.");
+      }
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const unlockFourthGate = useCallback(async () => {
+    setModeSafe("busy");
+    push("system", "── THE HIDDEN FOURTH GATE OPENS ──");
+    push("program", "The Sphinx: Three riddles answered true. A gate you did not know existed now yawns wide.");
+    try {
+      const res = await api.sphinxFourthGate();
+      const signOff = res.sign_off ? ` ${res.sign_off}` : "";
+      push("program", res.text);
+      if (res.sign_off) push("program", res.sign_off);
+      setModeSafe("result");
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(`${res.text}${signOff}`, { voice: res.voice || "ash" },
+        "To hear that again, press star. For another oracle, press pound. For the main menu, dial 0.");
+    } catch (e) {
+      setModeSafe("result");
+      if (isOutOfCredits(e)) {
+        push("error", "// out of minutes — the Universal Key needs more balance");
+        push("system", "Add balance: Profile \u2192 Universal Key \u2192 Add Balance. Then dial again.");
+      } else {
+        push("error", "// the fourth gate jammed (engine error)");
+        push("system", "Press \u2731 to try again · # for another oracle · 0 for the main menu.");
+      }
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const closeSphinx = useCallback(() => {
+    const st = sphinxState.current;
+    setModeSafe("result");
+    const line = `The Sphinx: ${st.correct} of three. The hidden gate stays shut — for now. Return when your mind is sharper.`;
+    push("program", line);
+    push("system", "Press # for another oracle · 0 for the main menu · or hang up.");
+    deliver(`${st.correct} of three. The hidden gate stays shut, for now. Return when your mind is sharper.`,
+      { voice: "ash" }, "For another oracle, press pound. For the main menu, dial 0.");
+  }, [push, deliver, setModeSafe]);
+
+  const presentGate = useCallback((step) => {
+    const st = sphinxState.current;
+    if (step >= SPHINX_GATES.length) { generateGatesReading(); return; }
+    st.step = step;
+    const gate = SPHINX_GATES[step];
+    setModeSafe("sphinx_gate");
+    push("system", `── ${gate.title} ──`);
+    push("program", `The Sphinx: ${gate.prompt}`);
+    gate.choices.forEach((c, i) => push("line", `  ${i + 1}  ${c}`));
+    push("system", "Press 1-4 to choose · 0 to leave.");
+    const spoken = `${gate.prompt} ` + gate.choices.map((c, i) => `For ${c}, press ${i + 1}.`).join(" ");
+    speak(spoken, { voice: "ash" });
+  }, [push, speak, setModeSafe, generateGatesReading]);
+
+  const recordGateChoice = useCallback((idx) => {
+    const st = sphinxState.current;
+    const gate = SPHINX_GATES[st.step];
+    if (!gate || !gate.choices[idx]) return;
+    st.gates[gate.key] = gate.choices[idx];
+    push("caller", `chose ${gate.choices[idx]}`);
+    presentGate(st.step + 1);
+  }, [push, presentGate]);
+
+  const startThreeGates = useCallback(() => {
+    currentLine.current = "fortune";
+    sphinxState.current = { step: 0, gates: {}, deck: [], idx: 0, correct: 0, asked: 0 };
+    push("program", "The Sphinx: Three gates stand before you. Choose, and do not overthink.");
+    presentGate(0);
+  }, [push, presentGate]);
+
+  const presentRiddle = useCallback(() => {
+    const st = sphinxState.current;
+    if (st.correct >= 3) { unlockFourthGate(); return; }
+    if (st.asked >= 5 || st.idx >= st.deck.length) { closeSphinx(); return; }
+    const riddle = st.deck[st.idx];
+    setMindlineInput("");
+    setModeSafe("sphinx_riddle");
+    push("system", `── Riddle ${st.asked + 1} · ${st.correct}/3 correct ──`);
+    push("program", `The Sphinx: ${riddle.q}`);
+    push("system", "Speak or type your answer, then Send · 0 to leave.");
+    speak(riddle.q, { voice: "ash" });
+  }, [push, speak, setModeSafe, unlockFourthGate, closeSphinx]);
+
+  const checkRiddleAnswer = useCallback((val) => {
+    const st = sphinxState.current;
+    const riddle = st.deck[st.idx];
+    if (!riddle) { closeSphinx(); return; }
+    const ans = (val || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ");
+    setMindlineInput("");
+    if (val) push("caller", val);
+    const correct = riddle.a.some((t) => ans.includes(t));
+    st.asked += 1;
+    st.idx += 1;
+    let fb, sp;
+    if (correct) {
+      st.correct += 1;
+      fb = `The Sphinx inclines its head. Correct — ${riddle.a[0]}. (${st.correct}/3)`;
+      sp = `Correct. ${riddle.a[0]}.`;
+    } else {
+      fb = `The Sphinx is unmoved. The answer was ${riddle.a[0]}. A wrong answer is still a step.`;
+      sp = `The answer was ${riddle.a[0]}. A wrong answer is still a step.`;
+    }
+    push(correct ? "program" : "system", fb);
+    setModeSafe("busy");
+    speak(sp, { voice: "ash" }, () => presentRiddle());
+  }, [push, speak, setModeSafe, closeSphinx, presentRiddle]);
+
+  const startChallenge = useCallback(() => {
+    currentLine.current = "fortune";
+    sphinxState.current = { step: 0, gates: {}, deck: shuffled(SPHINX_RIDDLES), idx: 0, correct: 0, asked: 0 };
+    setMindlineInput("");
+    push("program", "The Sphinx: Answer three riddles true, and the hidden Fourth Gate shall open to you.");
+    setModeSafe("busy");
+    speak("Answer three riddles true, and the hidden fourth gate shall open to you.", { voice: "ash" }, () => presentRiddle());
+  }, [push, speak, setModeSafe, presentRiddle]);
+
+  const startSphinx = useCallback(() => {
+    currentLine.current = "fortune";
+    setMindlineInput("");
+    setModeSafe("sphinx_menu");
+    push("program", "The Sphinx: You seek the gates, or you dare the riddles?");
+    push("line", "  1  The Three Gates");
+    push("line", "  2  Challenge the Sphinx");
+    push("system", "Press 1 or 2 · 0 to return to the main menu.");
+    speak("You seek the gates, or you dare the riddles? Press one for the three gates, or two to challenge the Sphinx. Press zero to leave.",
+      { voice: "ash" });
   }, [push, speak, setModeSafe]);
 
   // ---------------- Dial-In Trivia ----------------
@@ -1082,7 +1360,10 @@ export default function PhoneSimulator() {
     else if (m === "cyndi_question") { cyndiData.current.question = (v || "").trim(); generateCyndiReading(); }
     else if (m === "count_number") { generateCountReading(countData.current.category, (v || "").trim()); }
     else if (m === "count_magic") { revealMathemagic((v || "").trim()); }
-  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure, askRubySituation, askRubyStyle, askCyndiQuestion, generateCyndiReading, generateCountReading, revealMathemagic]);
+    else if (m === "count_magic_37") { reveal37((v || "").trim()); }
+    else if (m === "count_magic_kaprekar") { revealKaprekar((v || "").trim()); }
+    else if (m === "sphinx_riddle") { checkRiddleAnswer((v || "").trim()); }
+  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure, askRubySituation, askRubyStyle, askCyndiQuestion, generateCyndiReading, generateCountReading, revealMathemagic, reveal37, revealKaprekar, checkRiddleAnswer]);
 
   const micStart = useCallback(() => {
     if (listening) return;
@@ -1228,6 +1509,7 @@ export default function PhoneSimulator() {
         else if (personas[idx].slug === "zelda") startZelda();
         else if (personas[idx].slug === "nyx") startNyx();
         else if (personas[idx].slug === "count") startCount();
+        else if (personas[idx].slug === "sphinx") startSphinx();
         else generateFortune(personas[idx].slug);
       } else {
         push("error", "// no such voice on this line");
@@ -1298,7 +1580,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, startRuby, startCyndi, startZelda, startNyx, startCount, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
+  }, [personas, generateFortune, startRuby, startCyndi, startZelda, startNyx, startCount, startSphinx, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
 
   const lift = useCallback(() => {
     unlockAudio(); // unlock mobile/iOS audio within this user gesture
@@ -1367,9 +1649,10 @@ export default function PhoneSimulator() {
     const inCyndi = m === "cyndi_topic" || m === "cyndi_name" || m === "cyndi_question";
     const inZelda = m === "zelda_topic";
     const inNyx = m === "nyx_build";
-    const inCount = m === "count_menu" || m === "count_category" || m === "count_number" || m === "count_magic";
+    const inCount = m === "count_menu" || m === "count_category" || m === "count_number" || m === "count_magic" || m === "count_magic_menu" || m === "count_magic_37" || m === "count_magic_kaprekar";
+    const inSphinx = m === "sphinx_menu" || m === "sphinx_gate" || m === "sphinx_riddle";
     const inTrivia = m === "trivia_play" || m === "trivia_end";
-    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inNyx || inCount || inTrivia || m === "fortune_persona";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inNyx || inCount || inSphinx || inTrivia || m === "fortune_persona";
 
     // ── Secret-code dialing: ✱ then digits then # (e.g. *69#), works from ANY mode ──
     // Submit the code with #
@@ -1422,10 +1705,12 @@ export default function PhoneSimulator() {
         return;
       }
       // In the Count's number / mathemagic entry, # submits the typed-or-keyed number.
-      if (modeRef.current === "count_number" || modeRef.current === "count_magic") {
+      if (["count_number", "count_magic", "count_magic_37", "count_magic_kaprekar"].includes(modeRef.current)) {
         submitCurrent();
         return;
       }
+      // In the Sphinx's riddle challenge, # submits the typed answer.
+      if (modeRef.current === "sphinx_riddle") { submitCurrent(); return; }
       if (hashPending.current) {
         clearTimeout(hashPending.current);
         hashPending.current = null;
@@ -1550,13 +1835,37 @@ export default function PhoneSimulator() {
       if (n >= 1 && n <= 9) askCountNumber(COUNT_CATEGORIES[n - 1]);
       return;
     }
-    if (m === "count_number" || m === "count_magic") {
+    if (m === "count_number" || m === "count_magic" || m === "count_magic_37" || m === "count_magic_kaprekar") {
       // keypad digits append to the entry (also typable / speakable); # submits (handled above).
       if (/^[0-9]$/.test(d)) {
         const nv = mindlineInputRef.current + d;
         mindlineInputRef.current = nv;
         setMindlineInput(nv);
       }
+      return;
+    }
+    if (m === "count_magic_menu") {
+      if (d === "1") startMagic1089();
+      else if (d === "2") startMagic37();
+      else if (d === "3") startMagicKaprekar();
+      else if (d === "0") startCount();
+      return;
+    }
+
+    if (m === "sphinx_menu") {
+      if (d === "1") startThreeGates();
+      else if (d === "2") startChallenge();
+      else if (d === "0") backToMenu();
+      return;
+    }
+    if (m === "sphinx_gate") {
+      if (d === "0") { backToMenu(); return; }
+      const n = parseInt(d, 10);
+      if (n >= 1 && n <= 4) recordGateChoice(n - 1);
+      return;
+    }
+    if (m === "sphinx_riddle") {
+      if (d === "0") backToMenu(); // type or speak your answer; 0 leaves
       return;
     }
 
@@ -1598,7 +1907,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, startCountNumber, startCountMagic, askCountNumber, submitCurrent, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, startCountNumber, startCountMagic, startCount, askCountNumber, startMagic1089, startMagic37, startMagicKaprekar, startThreeGates, startChallenge, recordGateChoice, submitCurrent, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).

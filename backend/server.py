@@ -121,6 +121,13 @@ class CountRequest(BaseModel):
     number: Optional[str] = ""
 
 
+class SphinxRequest(BaseModel):
+    mode: Optional[str] = "gates"   # "gates" | "fourth_gate"
+    mind: Optional[str] = ""
+    heart: Optional[str] = ""
+    path: Optional[str] = ""
+
+
 class RubyRequest(BaseModel):
     name: Optional[str] = ""
     situation: Optional[str] = ""
@@ -855,6 +862,53 @@ async def count_reading(payload: CountRequest):
         raise _llm_http_error(e, "Fortune engine error")
     return {"persona": "count", "persona_name": "Count Clairvoyant", "voice": "echo",
             "text": text, "sign_off": COUNT_SIGNOFF, "root": n["root"], "sum": n["sum"]}
+
+
+# ------- The Sphinx: Three Gates (symbolic) + the hidden Fourth Gate (deeper fortune) -------
+SPHINX_SIGNOFF = ("To learn my teachings, I must first teach you how to learn. The gates close for "
+                  "now. Call upon the Sphinx again when you are ready for another riddle.")
+
+
+@api_router.post("/programs/sphinx")
+async def sphinx_reading(payload: SphinxRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    if payload.mode == "fourth_gate":
+        system = (
+            "You are THE SPHINX: ancient, dry, patient, quietly amused, deadpan. The caller has "
+            "answered three challenge riddles correctly and unlocked the hidden FOURTH GATE. Reward "
+            "them with a deeper, more profound reading than usual — a single crafted piece of wisdom "
+            "that sounds momentous, tied to the idea that mastery is learning how to learn. Speak in "
+            "your usual style (a chiasmus/paradox, a cryptic animal metaphor, or a koan), UNDER 90 "
+            "words, never explaining it. Do NOT add a sign-off line (the machine adds its own)."
+        )
+        prompt = "The Fourth Gate has opened. Deliver the deeper fortune."
+    else:
+        mind = (payload.mind or "a Lantern").strip()
+        heart = (payload.heart or "Silence").strip()
+        path = (payload.path or "the Climbing Road").strip()
+        system = (
+            "You are THE SPHINX: ancient, dry, patient, wise and quietly amused; deadpan and never "
+            "cruel. The caller has passed the Three Gates by making three SYMBOLIC choices — of the "
+            "Mind, the Heart, and the Path. Weave their three choices into ONE short symbolic reading "
+            "that reveals their mind, heart and direction and sounds momentous yet a little baffling. "
+            "Name each choice as you interpret it. UNDER 110 words, deadpan and enigmatic, never "
+            "excited. Do NOT add a sign-off line (the machine adds its own)."
+        )
+        prompt = (
+            f"At the Gate of Mind they carried: {mind}. At the Gate of Heart they were stopped by: "
+            f"{heart}. At the Gate of Path they chose: {path}. Read the three together."
+        )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=system).with_model("openai", "gpt-5.2")
+    try:
+        text = str(await chat.send_message(UserMessage(text=prompt))).strip()
+    except Exception as e:
+        logger.exception("Sphinx reading failed")
+        raise _llm_http_error(e, "Fortune engine error")
+    return {"persona": "sphinx", "persona_name": "The Sphinx", "voice": "ash",
+            "text": text, "sign_off": SPHINX_SIGNOFF,
+            "fourth_gate": payload.mode == "fourth_gate"}
 
 
 @api_router.post("/tts")

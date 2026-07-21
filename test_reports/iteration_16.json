@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 16 — Sphinx Phase 2 + Count Mathemagic (37 + Kaprekar) verified end-to-end. Backend pytest 4/4 PASS on POST /api/programs/sphinx: mode='gates' with {mind:'a Lantern', heart:'a Whisper', path:'the River'} returns persona_name='The Sphinx', voice='ash', text (LLM), sign_off starting 'To learn my teachings...', fourth_gate=false. mode='fourth_gate' returns same persona/voice, fourth_gate=true, deeper text. Empty body defaults gracefully (200). /api/personas roster places 'sphinx' at index 7 (slot 8). Frontend Sphinx Gates: lift -> dial 1 -> oracle list has '8 The Sphinx' -> dial 8 opens sphinx_menu ('1 The Three Gates', '2 Challenge the Sphinx') -> press 1 -> Gate of Mind (4 choices) -> press 1 (Lantern) -> Gate of Heart -> press 2 (Whisper) -> Gate of Path -> press 2 (River) -> LLM-woven Sphinx reading appears in CRT with 'gates close for now' sign-off. # returns to oracle list. Sphinx Challenge: press 2 -> intro line then '── Riddle 1 · 0/3 correct ──' with sphinx-riddle-input; sending answer 'egg candle clock bottle towel piano footstep needle' (substring covers every riddle answer) increments correct counter through 1/3 -> 2/3 -> 3/3, then 'Three riddles answered true' + hidden Fourth Gate LLM reading returned with Sphinx sign-off. Wrong answer 'banana' produces 'The Sphinx is unmoved. The answer was ...' feedback without crash. Count Mathemagic: dial 7 -> press 2 opens count_magic_menu with all three items ('1 The 1089 Prophecy', '2 The Eternal 37', '3 The Black Hole of 6174'). Press 2 -> count-magic-input; entering '37' + Send -> 'Thirty-seven. It is ALWAYS thirty-seven — a number as loyal as the grave.' Entering wrong '42' -> 'You bring me 42, yet the true answer is always thirty-seven.' (in-character, no crash). Press 3 -> Kaprekar; entering '3524' -> steps shown '5432−2345=3087; 8730−0378=8352; 8532−2358=6174' + 'In 3 steps, your number falls into the Black Hole… six thousand one hundred seventy-four.' Entering '1111' -> graceful 'The void is particular. Bring me FOUR digits, and not all alike.' (no crash). Press 1 (1089) still produces its subtraction+addition sequence landing on 1089. Regression: after any reading # returns to CHOOSE ANOTHER ORACLE; 0 returns to the main menu.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Sphinx Challenge intro -> first riddle", "issue": "startChallenge relies on the TTS speak() onended callback to invoke presentRiddle(). speak()'s catch block prints '// audio channel unavailable' but never calls onDone — if a caller's browser blocks/aborts audio.play() the Challenge stalls forever with no first riddle. Reproduced once when handset click didn't grant audio autoplay; works reliably once a real user gesture unlocks audio.", "affected_selectors": ["sphinx-riddle-input"]}
+    ],
+    "design_issues": []
+  },
+  "test_results": {
+    "backend_pytest": "4/4 PASS (/app/backend/tests/test_iteration16_sphinx.py, iter16.xml)",
+    "sphinx_gates_flow": "PASS — 8 -> 1 -> Gate of Mind/Heart/Path -> LLM reading + sign-off",
+    "sphinx_challenge_reach_fourth_gate": "PASS — 3 correct via compound-answer -> Fourth Gate LLM reading",
+    "sphinx_challenge_wrong_answer_no_crash": "PASS — 'banana' -> 'The Sphinx is unmoved. The answer was ...'",
+    "count_magic_menu_items": "PASS — 1 1089 Prophecy, 2 Eternal 37, 3 Black Hole of 6174",
+    "count_magic_37_correct": "PASS — 'It is ALWAYS thirty-seven'",
+    "count_magic_37_wrong": "PASS — 'You bring me 42, yet the true answer is always thirty-seven' (no crash)",
+    "count_magic_kaprekar_3524": "PASS — 3 subtraction steps landing on 6174",
+    "count_magic_kaprekar_repdigit_1111": "PASS — 'The void is particular. Bring me FOUR digits, and not all alike.' (no crash)",
+    "count_magic_1089_regression": "PASS",
+    "hash_and_zero_regression_from_result": "PASS"
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration16_sphinx.py", "/app/test_reports/pytest/iter16.xml"],
+  "action_items": [
+    "(minor/robustness) In PhoneSimulator.jsx `speak()` catch block, also invoke `onDone?.()` (or schedule it via setTimeout) when audio fails — otherwise flows that chain the next step through the TTS onended callback (Sphinx Challenge intro -> presentRiddle, adventure narration chains, etc.) will stall on any browser that blocks/aborts audio.play(). This is the only latent bug found."
+  ],
+  "critical_code_review_comments": [
+    "PhoneSimulator.jsx now spans 2223 lines with per-oracle sub-modes (sphinx_menu/sphinx_gate/sphinx_riddle + count_magic_menu/count_magic_37/count_magic_kaprekar). Extracting each oracle's flow into its own module/hook is well overdue — the onKey switch is becoming unreadable.",
+    "speak() swallows audio failures silently by only logging '// audio channel unavailable' but never firing onDone. Any speak(text, opts, onDone) chain becomes a dead end when audio fails. Recommend calling onDone anyway (or wrapping in a promise so a fallback timer can be attached).",
+    "SPHINX_RIDDLES uses substring matching (case-insensitive). A user typing the union string 'egg candle clock bottle towel piano footstep needle' auto-passes every riddle. Intentional (matches spec: 'an egg' matches 'egg'), but flag: it also means unrelated text containing any answer word passes. Acceptable for a whimsical fortune-telling toy."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration16_sphinx.py", "/app/test_reports/iteration_16.json"],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% of requested Sphinx + Count Mathemagic behaviors verified"},
+  "test_credentials": "None required (no auth)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Sphinx at slot 8 with modes sphinx_menu/sphinx_gate/sphinx_riddle. sphinx-riddle-input is an INPUT_MODE (mindlineInputRef textbox); Send=mindline-send-btn or # submits. The first riddle only appears after startChallenge's TTS onended callback fires — allow >=15s and retry once. To reach the Fourth Gate deterministically, send the compound string 'egg candle clock bottle towel piano footstep needle' three times (case-insensitive substring match). Count Mathemagic submenu on 7 -> 2: 1=1089, 2=Eternal 37, 3=Kaprekar (data-testid=count-magic-input for all three). Kaprekar & 37 are DETERMINISTIC (no LLM). Only known latent issue: speak() does not call onDone on audio failure — see action_items."
+}

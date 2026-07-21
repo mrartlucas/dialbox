@@ -44,6 +44,10 @@ export const api = {
     http.post("/programs/nyx", { stars }).then((r) => r.data),
   countReading: (category, number) =>
     http.post("/programs/count", { category, number }).then((r) => r.data),
+  sphinxGates: (mind, heart, path) =>
+    http.post("/programs/sphinx", { mode: "gates", mind, heart, path }).then((r) => r.data),
+  sphinxFourthGate: () =>
+    http.post("/programs/sphinx", { mode: "fourth_gate" }).then((r) => r.data),
   triviaStart: () => http.post("/trivia/start", {}).then((r) => r.data),
   triviaAnswer: (session_id, choice) =>
     http.post("/trivia/answer", { session_id, choice }).then((r) => r.data),
