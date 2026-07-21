@@ -112,6 +112,10 @@ class ZeldaRequest(BaseModel):
     topic: Optional[str] = "General Future"
 
 
+class NyxRequest(BaseModel):
+    stars: List[int] = []   # sequence of pressed keys 1-9, each = a star meaning
+
+
 class RubyRequest(BaseModel):
     name: Optional[str] = ""
     situation: Optional[str] = ""
@@ -730,6 +734,67 @@ async def zelda_reading(payload: ZeldaRequest):
         raise _llm_http_error(e, "Fortune engine error")
     return {"persona": "zelda", "persona_name": "Zelda the All-Knowing", "voice": "shimmer",
             "text": text, "sign_off": ZELDA_SIGNOFF}
+
+
+# ------- Nyx of the Nine Stars: keypad constellation builder + auto moon-phase fortune -------
+NYX_SIGNOFF = ("The stars have returned to silence. Call Nyx of the Nine Stars again when the "
+               "heavens rearrange your path.")
+NYX_STAR_NAMES = ["Origin", "Bond", "Voice", "Foundation", "Crossroads",
+                  "Desire", "Shadow", "Power", "Becoming"]
+_MOON_NAMES = ["New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
+               "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent"]
+
+
+def moon_phase(now=None):
+    """Deterministic moon phase from the date (no external API). Returns (name, illumination%)."""
+    import math
+    now = now or datetime.now(timezone.utc)
+    ref = datetime(2000, 1, 6, 18, 14, 0, tzinfo=timezone.utc)  # a known new moon
+    synodic = 29.53058867
+    days = (now - ref).total_seconds() / 86400.0
+    phase = (days % synodic) / synodic  # 0..1 through the cycle
+    illum = round((1 - math.cos(2 * math.pi * phase)) / 2 * 100)
+    idx = int(phase * 8 + 0.5) % 8
+    return _MOON_NAMES[idx], illum
+
+
+@api_router.post("/programs/nyx")
+async def nyx_reading(payload: NyxRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    stars = [s for s in (payload.stars or []) if isinstance(s, int) and 1 <= s <= 9][:7]
+    if not stars:
+        stars = [1]
+    named = [NYX_STAR_NAMES[s - 1] for s in stars]
+    repeats = sorted({NYX_STAR_NAMES[s - 1] for s in stars if stars.count(s) > 1})
+    phase_name, illum = moon_phase()
+    system = (
+        "You are NYX OF THE NINE STARS, a calm, spacious, meditative and androgynous cosmic prophet "
+        "who reads destiny in constellations and moon phases. The caller has built a temporary "
+        "constellation on the keypad, star by star, and each star carries a meaning. Read it with "
+        "long thoughtful gravity: (1) name the constellation they have drawn and reflect its overall "
+        "shape and mood; (2) interpret the SEQUENCE — the order the stars were placed tells a story of "
+        "movement from the first to the last; (3) if any star is REPEATED, note that its theme is "
+        "amplified and burning bright; (4) end with the AUTOMATIC MOON-PHASE FORTUNE, tying the "
+        "current moon phase into concrete guidance for the days ahead. Keep the whole reply under 140 "
+        "words, serene and awe-filled. Do NOT add a sign-off line (the machine adds its own)."
+    )
+    prompt = (
+        f"The caller placed these stars in order: {', '.join(named)}. "
+        + (f"Repeated (amplified) stars: {', '.join(repeats)}. " if repeats else "No stars were repeated. ")
+        + f"The current moon phase is {phase_name}, about {illum} percent illuminated. "
+        "Read the constellation, then deliver the moon-phase fortune."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=system).with_model("openai", "gpt-5.2")
+    try:
+        text = str(await chat.send_message(UserMessage(text=prompt))).strip()
+    except Exception as e:
+        logger.exception("Nyx reading failed")
+        raise _llm_http_error(e, "Fortune engine error")
+    return {"persona": "nyx", "persona_name": "Nyx of the Nine Stars", "voice": "alloy",
+            "text": text, "sign_off": NYX_SIGNOFF, "moon_phase": phase_name,
+            "illumination": illum, "stars": named}
 
 
 @api_router.post("/tts")

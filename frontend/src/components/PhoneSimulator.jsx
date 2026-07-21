@@ -33,6 +33,7 @@ const STATUS = {
   cyndi_name: "CYNDI & LOUISE",
   cyndi_question: "CYNDI & LOUISE",
   zelda_topic: "ZELDA",
+  nyx_build: "NYX · STARS",
   trivia_play: "TRIVIA",
   trivia_end: "GAME OVER",
   exit_confirm: "END CALL?",
@@ -65,6 +66,12 @@ const CYNDI_TOPICS = [
 const ZELDA_TOPICS = [
   "Love", "Money", "Career", "Family", "Friendship",
   "Secrets", "Upcoming Event", "Difficult Decision", "General Future",
+];
+
+// Nyx of the Nine Stars — each keypad digit 1-9 is a star with a meaning (build a constellation).
+const NYX_STARS = [
+  "Origin", "Bond", "Voice", "Foundation", "Crossroads",
+  "Desire", "Shadow", "Power", "Becoming",
 ];
 
 // Every Tuesday the Master rests and Spirit Taco takes key 5 (caller's local day).
@@ -173,6 +180,7 @@ export default function PhoneSimulator() {
   const advSession = useRef({ id: null, node: null });
   const rubyData = useRef({ name: "", situation: "", style: "reflective" });
   const cyndiData = useRef({ name: "", topic: "General Reading", question: "" });
+  const nyxStars = useRef([]);
   const triviaSession = useRef({ id: null, num: 4 });
   const advStories = useRef([]);
   const holdTalkRef = useRef(null);
@@ -799,6 +807,50 @@ export default function PhoneSimulator() {
     speak(spoken, { voice: "shimmer" });
   }, [push, speak, setModeSafe]);
 
+  // ---------------- Nyx of the Nine Stars: constellation builder + moon phase ----------------
+  const generateNyxReading = useCallback(async (stars) => {
+    setModeSafe("busy");
+    const named = stars.map((n) => NYX_STARS[n - 1]).join(" · ");
+    push("program", `Nyx traces your constellation across the dark: ${named}…`);
+    try {
+      const res = await api.nyxReading(stars);
+      const signOff = res.sign_off ? ` ${res.sign_off}` : "";
+      if (res.moon_phase) push("system", `🌙 Tonight's moon: ${res.moon_phase} (${res.illumination}% lit)`);
+      push("program", res.text);
+      if (res.sign_off) push("program", res.sign_off);
+      setModeSafe("result");
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(
+        `${res.text}${signOff}`,
+        { voice: res.voice || "alloy" },
+        "To hear the stars again, press star. To speak with another oracle, press pound. To return to the main menu, dial 0."
+      );
+    } catch (e) {
+      setModeSafe("result");
+      if (isOutOfCredits(e)) {
+        push("error", "// out of minutes — the Universal Key needs more balance");
+        push("system", "Add balance: Profile \u2192 Universal Key \u2192 Add Balance. Then dial again.");
+      } else {
+        push("error", "// the stars went dark (engine error)");
+        push("system", "Press \u2731 to try again · # for another oracle · 0 for the main menu.");
+      }
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const startNyx = useCallback(() => {
+    currentLine.current = "fortune";
+    nyxStars.current = [];
+    setMindlineInput("");
+    setModeSafe("nyx_build");
+    push("program", "Nyx of the Nine Stars: The keypad becomes the sky. Build your constellation, star by star.");
+    NYX_STARS.forEach((s, i) => push("line", `  ${i + 1}  ${s}`));
+    push("system", "Press stars 1-9 to place them, then # to read the constellation · 0 to return.");
+    const spoken = "The keypad becomes the sky. Each number is a star. " +
+      NYX_STARS.map((s, i) => `${i + 1}, ${s}.`).join(" ") +
+      " Press your stars in order, then press pound to read the constellation.";
+    speak(spoken, { voice: "alloy" });
+  }, [push, speak, setModeSafe]);
+
   // ---------------- Dial-In Trivia ----------------
   const renderTriviaEnd = useCallback((data) => {
     setModeSafe("trivia_end");
@@ -1066,6 +1118,7 @@ export default function PhoneSimulator() {
         if (personas[idx].slug === "ruby") startRuby();
         else if (personas[idx].slug === "cyndi") startCyndi();
         else if (personas[idx].slug === "zelda") startZelda();
+        else if (personas[idx].slug === "nyx") startNyx();
         else generateFortune(personas[idx].slug);
       } else {
         push("error", "// no such voice on this line");
@@ -1136,7 +1189,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, startRuby, startCyndi, startZelda, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
+  }, [personas, generateFortune, startRuby, startCyndi, startZelda, startNyx, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
 
   const lift = useCallback(() => {
     unlockAudio(); // unlock mobile/iOS audio within this user gesture
@@ -1204,8 +1257,9 @@ export default function PhoneSimulator() {
     const inRuby = m === "ruby_name" || m === "ruby_situation" || m === "ruby_style";
     const inCyndi = m === "cyndi_topic" || m === "cyndi_name" || m === "cyndi_question";
     const inZelda = m === "zelda_topic";
+    const inNyx = m === "nyx_build";
     const inTrivia = m === "trivia_play" || m === "trivia_end";
-    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inTrivia || m === "fortune_persona";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inNyx || inTrivia || m === "fortune_persona";
 
     // ── Secret-code dialing: ✱ then digits then # (e.g. *69#), works from ANY mode ──
     // Submit the code with #
@@ -1251,6 +1305,12 @@ export default function PhoneSimulator() {
 
     // ## (double pound) = universal exit; opens the End Call? confirmation.
     if (d === "#") {
+      // In Nyx's constellation builder, # submits the constellation for a reading.
+      if (modeRef.current === "nyx_build") {
+        if (nyxStars.current.length >= 1) generateNyxReading(nyxStars.current.slice());
+        else push("system", "Place at least one star (press 1-9), then press #.");
+        return;
+      }
       if (hashPending.current) {
         clearTimeout(hashPending.current);
         hashPending.current = null;
@@ -1353,6 +1413,16 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (m === "nyx_build") {
+      if (d === "0") { backToMenu(); return; }
+      const n = parseInt(d, 10);
+      if (n >= 1 && n <= 9 && nyxStars.current.length < 7) {
+        nyxStars.current.push(n);
+        push("line", `  \u2605 ${NYX_STARS[n - 1]}  (${nyxStars.current.length}/7 — press # to read)`);
+      }
+      return;
+    }
+
     if (m === "trivia_play") {
       if (d === "0") backToMenu();
       else if (d === "*") replayLast();
@@ -1391,7 +1461,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).

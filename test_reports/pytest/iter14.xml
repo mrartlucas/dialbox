@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="11.085" timestamp="2026-07-21T20:33:55.238321+00:00" hostname="agent-env-799577ab-a39d-479f-8266-610009520ec3"><testcase classname="tests.test_iteration14_nyx.TestNyx" name="test_nyx_with_stars" time="4.850" /><testcase classname="tests.test_iteration14_nyx.TestNyx" name="test_nyx_empty_stars" time="5.529" /><testcase classname="tests.test_iteration14_nyx.TestNyx" name="test_personas_has_nyx_slot9" time="0.159"><failure message="AttributeError: 'list' object has no attribute 'get'">backend/tests/test_iteration14_nyx.py:43: in test_personas_has_nyx_slot9
+    personas = r.json().get("personas", r.json())
+               ^^^^^^^^^^^^
+E   AttributeError: 'list' object has no attribute 'get'</failure></testcase></testsuite></testsuites>

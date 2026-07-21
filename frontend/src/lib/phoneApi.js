@@ -40,6 +40,8 @@ export const api = {
     http.post("/programs/cyndi", { name, topic, question }).then((r) => r.data),
   zeldaReading: (topic) =>
     http.post("/programs/zelda", { topic }).then((r) => r.data),
+  nyxReading: (stars) =>
+    http.post("/programs/nyx", { stars }).then((r) => r.data),
   triviaStart: () => http.post("/trivia/start", {}).then((r) => r.data),
   triviaAnswer: (session_id, choice) =>
     http.post("/trivia/answer", { session_id, choice }).then((r) => r.data),
