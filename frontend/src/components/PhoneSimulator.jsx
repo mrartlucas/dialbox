@@ -26,6 +26,11 @@ const STATUS = {
   adventure_end: "THE END",
   adventure_select: "PICK A TALE",
   adventure_ai_theme: "NEW TALE",
+  ruby_name: "MADAME RUBY",
+  ruby_situation: "MADAME RUBY",
+  ruby_style: "MADAME RUBY",
+  trivia_play: "TRIVIA",
+  trivia_end: "GAME OVER",
   exit_confirm: "END CALL?",
   call_ended: "CALL ENDED",
   incoming: "RINGING",
@@ -40,6 +45,8 @@ const INPUT_MODES = {
   kk_whos_there: { testid: "knock-input", ph: "say “who's there?”…" },
   kk_who: { testid: "knock-input", ph: "say “… who?”…" },
   adventure_ai_theme: { testid: "adventure-theme-input", ph: "name a theme… (pirates, ghosts, dragons, anything)" },
+  ruby_name: { testid: "ruby-name-input", ph: "your first name…" },
+  ruby_situation: { testid: "ruby-situation-input", ph: "what do you seek guidance on?…" },
 };
 
 // MindLine server phase -> simulator mode.
@@ -122,6 +129,8 @@ export default function PhoneSimulator() {
   const kkTold = useRef([]);
   const mlSession = useRef({ id: null, phase: null });
   const advSession = useRef({ id: null, node: null });
+  const rubyData = useRef({ name: "", situation: "", style: "reflective" });
+  const triviaSession = useRef({ id: null, num: 4 });
   const advStories = useRef([]);
   const holdTalkRef = useRef(null);
 
@@ -594,6 +603,171 @@ export default function PhoneSimulator() {
     }
   }, [mindlineInput, push, speak, renderAdvNode, setModeSafe]);
 
+  // ---------------- Madame Ruby: guided tarot session ----------------
+  const generateRubyReading = useCallback(async () => {
+    stopAudio();
+    setModeSafe("busy");
+    push("program", "Madame Ruby shuffles the deck… the cards are cut…");
+    try {
+      const { name, situation, style } = rubyData.current;
+      const res = await api.rubyReading(name, situation, style);
+      push("program", `🂠 Cards drawn: ${(res.cards || []).join(" · ")}`);
+      push("program", `${res.persona_name}: ${res.text}`);
+      if (res.sign_off) push("program", res.sign_off);
+      setModeSafe("result");
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(
+        `${res.text} ${res.sign_off || ""}`,
+        { voice: res.voice },
+        "To hear your reading again, press star. For another oracle, press pound. For the main menu, dial 0."
+      );
+    } catch (e) {
+      setModeSafe("result");
+      push("error", "// Madame Ruby's cards went dark (engine error)");
+      push("system", "Press \u2731 to try again · # for another oracle · 0 for the main menu.");
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const askRubyStyle = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("ruby_style");
+    push("program", "And how shall I read for you? Press 1 for a PREDICTION of what is coming, or 2 for REFLECTION and guidance.");
+    push("system", "Press 1 (predict) or 2 (reflect) · 0 to leave.");
+    speak("And how shall I read for you? Press one for a prediction of what is coming, or two for reflection and guidance.",
+      { voice: "shimmer" });
+  }, [push, speak, setModeSafe]);
+
+  const askRubySituation = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("ruby_situation");
+    const nm = rubyData.current.name;
+    push("program", `And what weighs on you, ${nm}? Tell me the situation you seek guidance on.`);
+    speak(`And what weighs on you, ${nm}? Tell me the situation you seek guidance on. Then press send, or just say it.`,
+      { voice: "shimmer" });
+  }, [push, speak, setModeSafe]);
+
+  const startRuby = useCallback(() => {
+    currentLine.current = "fortune";
+    rubyData.current = { name: "", situation: "", style: "reflective" };
+    setMindlineInput("");
+    setModeSafe("ruby_name");
+    push("program", "Madame Ruby: Welcome, seeker. Before I turn the cards… tell me, what name shall I call you?");
+    speak("Welcome, seeker. Before I turn the cards, tell me — what name shall I call you? Then press send, or just say it.",
+      { voice: "shimmer" });
+  }, [push, speak, setModeSafe]);
+
+  // ---------------- Dial-In Trivia ----------------
+  const renderTriviaEnd = useCallback((data) => {
+    setModeSafe("trivia_end");
+    const score = data.final_score;
+    const total = data.total;
+    let remark = "A valiant effort!";
+    if (score >= total * 0.85) remark = "Absolutely brilliant — a true trivia champion!";
+    else if (score >= total * 0.6) remark = "Nicely done — sharp as a tack!";
+    else if (score >= total * 0.35) remark = "Not bad at all!";
+    push("system", `── GAME OVER · You scored ${score} out of ${total} ──`);
+    push("program", remark);
+    push("system", "Press 1 to play again · 0 for the main menu · or hang up.");
+    const speech = `That's the end of the game! You scored ${score} out of ${total}. ${remark} Press one to play again, or press zero for the main menu.`;
+    lastSpoken.current = { text: speech, opts: { voice: OPERATOR_VOICE }, optionsText: "" };
+    speak(speech, { voice: OPERATOR_VOICE });
+  }, [push, speak, setModeSafe]);
+
+  const renderTriviaQuestion = useCallback((q) => {
+    triviaSession.current.num = q.num_choices;
+    setModeSafe("trivia_play");
+    push("system", `── Round ${q.round} of ${q.total_rounds} · Question ${q.q_num} of ${q.q_per_round} ──`);
+    push("program", q.question);
+    (q.choices || []).forEach((c) => push("line", `  ${c.key}  ${c.label}`));
+    push("system", "Press a number to answer · say \u201crepeat\u201d, \u201cexplain\u201d or \u201cskip\u201d · 0 to quit.");
+    const optionsText =
+      "Is it: " +
+      (q.choices || []).map((c) => `${c.label}, press ${c.key}`).join("; ") +
+      ". Press a number, or say repeat, explain, or skip.";
+    lastSpoken.current = { text: q.question, opts: { voice: OPERATOR_VOICE }, optionsText };
+    speak(q.question, { voice: OPERATOR_VOICE }, () => speak(optionsText, { voice: OPERATOR_VOICE }));
+  }, [push, speak, setModeSafe]);
+
+  const handleTriviaResponse = useCallback((data) => {
+    if (data.error === "session_expired") {
+      push("error", "// the quiz line dropped");
+      backToMenu();
+      return;
+    }
+    const r = data.result;
+    let line, speech;
+    if (r.skipped) {
+      line = `⏭ Skipped. The answer was ${r.correct_key}. ${r.correct_label}.`;
+      speech = `Skipped. The answer was ${r.correct_label}.`;
+    } else if (r.correct) {
+      line = `✅ Correct! ${r.explanation} (Score: ${r.score})`;
+      speech = `Correct! ${r.explanation}`;
+    } else {
+      line = `❌ Not quite. The answer was ${r.correct_key}. ${r.correct_label}. ${r.explanation} (Score: ${r.score})`;
+      speech = `Not quite. The correct answer was ${r.correct_label}. ${r.explanation}`;
+    }
+    push(r.correct ? "program" : "system", line);
+    if (data.game_complete) {
+      speak(speech, { voice: OPERATOR_VOICE }, () => renderTriviaEnd(data));
+      return;
+    }
+    if (data.error === "generation_failed" || !data.next) {
+      push("error", "// the quiz machine hiccuped");
+      backToMenu();
+      return;
+    }
+    speak(speech, { voice: OPERATOR_VOICE }, () => {
+      if (data.finished_round) {
+        push("system", `── Round ${data.finished_round} complete! ──`);
+        speak(`That's the end of round ${data.finished_round}. On to round ${data.finished_round + 1} — the questions get tougher!`,
+          { voice: OPERATOR_VOICE }, () => renderTriviaQuestion(data.next));
+      } else {
+        renderTriviaQuestion(data.next);
+      }
+    });
+  }, [push, speak, backToMenu, renderTriviaQuestion, renderTriviaEnd]);
+
+  const triviaAnswer = useCallback(async (choice) => {
+    if (!triviaSession.current.id) return;
+    stopAudio();
+    setModeSafe("busy");
+    push("caller", choice === "skip" ? "skip" : `answered ${choice}`);
+    try {
+      const data = await api.triviaAnswer(triviaSession.current.id, choice);
+      handleTriviaResponse(data);
+    } catch (e) {
+      setModeSafe("trivia_play");
+      push("error", "// static on the line — try again");
+    }
+  }, [push, handleTriviaResponse, setModeSafe]);
+
+  const triviaSkip = useCallback(() => triviaAnswer("skip"), [triviaAnswer]);
+
+  const triviaHint = useCallback(async () => {
+    if (!triviaSession.current.id) return;
+    try {
+      const r = await api.triviaHint(triviaSession.current.id);
+      push("program", `💡 Hint: ${r.hint}`);
+      speak(`Here's a hint. ${r.hint}`, { voice: OPERATOR_VOICE });
+    } catch (e) {}
+  }, [push, speak]);
+
+  const enterTrivia = useCallback(async () => {
+    currentLine.current = "trivia";
+    setModeSafe("busy");
+    push("system", "── DIAL-IN TRIVIA ──");
+    push("program", "Four rounds, six questions each. Answer with the keypad, or say repeat, explain, or skip. Good luck!");
+    try {
+      const r = await api.triviaStart();
+      triviaSession.current = { id: r.session_id, num: r.question.num_choices };
+      renderTriviaQuestion(r.question);
+    } catch (e) {
+      setModeSafe("message");
+      push("error", "// the quiz machine is offline");
+      push("system", "Dial 0 for the main menu, or hang up.");
+    }
+  }, [push, renderTriviaQuestion, setModeSafe]);
+
   const submitCurrent = useCallback((val) => {
     const m = modeRef.current;
     if (m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk") mindlineSend(val);
@@ -601,7 +775,9 @@ export default function PhoneSimulator() {
     else if (m === "kk_whos_there") kkRespond(val);
     else if (m === "kk_who") kkReveal(val);
     else if (m === "adventure_ai_theme") aiStartAdventure(val);
-  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure]);
+    else if (m === "ruby_name") { rubyData.current.name = (val || "").trim() || "seeker"; askRubySituation(); }
+    else if (m === "ruby_situation") { rubyData.current.situation = (val || "").trim(); askRubyStyle(); }
+  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure, askRubySituation, askRubyStyle]);
 
   const micStart = useCallback(() => {
     if (listening) return;
@@ -660,10 +836,12 @@ export default function PhoneSimulator() {
       enterKnockKnock();
     } else if (slug === "adventure") {
       enterAdventure();
+    } else if (slug === "trivia") {
+      enterTrivia();
     } else {
       backToMenu();
     }
-  }, [loadFortunePersonas, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, backToMenu, setModeSafe]);
+  }, [loadFortunePersonas, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, backToMenu, setModeSafe]);
 
   const triggerExitConfirm = useCallback(() => {
     stopAudio();
@@ -735,7 +913,8 @@ export default function PhoneSimulator() {
       const idx = parseInt(digits, 10) - 1;
       if (personas[idx]) {
         push("caller", `dialed ${digits} — ${personas[idx].name}`);
-        generateFortune(personas[idx].slug);
+        if (personas[idx].slug === "ruby") startRuby();
+        else generateFortune(personas[idx].slug);
       } else {
         push("error", "// no such voice on this line");
       }
@@ -758,6 +937,9 @@ export default function PhoneSimulator() {
       } else if (res.type === "program" && res.interaction === "adventure") {
         push("program", `Connecting to ${res.name}...`);
         enterAdventure();
+      } else if (res.type === "program" && res.interaction === "trivia") {
+        push("program", `Connecting to ${res.name}...`);
+        enterTrivia();
       } else if (res.type === "program" && res.has_personas) {
         currentLine.current = "fortune";
         setModeSafe("fortune_persona");
@@ -801,7 +983,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, setModeSafe]);
+  }, [personas, generateFortune, startRuby, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
 
   const lift = useCallback(() => {
     unlockAudio(); // unlock mobile/iOS audio within this user gesture
@@ -866,7 +1048,9 @@ export default function PhoneSimulator() {
     const inMagic8 = m === "magic8_ask" || m === "magic8_answer";
     const inKnock = m === "kk_whos_there" || m === "kk_who" || m === "kk_done";
     const inAdventure = m === "adventure_play" || m === "adventure_end" || m === "adventure_select" || m === "adventure_ai_theme";
-    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || m === "fortune_persona";
+    const inRuby = m === "ruby_name" || m === "ruby_situation" || m === "ruby_style";
+    const inTrivia = m === "trivia_play" || m === "trivia_end";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inTrivia || m === "fortune_persona";
 
     // ## (double pound) = universal exit; opens the End Call? confirmation.
     if (d === "#") {
@@ -943,6 +1127,33 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (m === "ruby_name" || m === "ruby_situation") {
+      if (d === "0") backToMenu(); // type or speak your answer; 0 returns to the menu
+      return;
+    }
+    if (m === "ruby_style") {
+      if (d === "1") { rubyData.current.style = "predictive"; generateRubyReading(); }
+      else if (d === "2") { rubyData.current.style = "reflective"; generateRubyReading(); }
+      else if (d === "0") backToMenu();
+      return;
+    }
+
+    if (m === "trivia_play") {
+      if (d === "0") backToMenu();
+      else if (d === "*") replayLast();
+      else {
+        const n = parseInt(d, 10);
+        if (n >= 1 && n <= (triviaSession.current.num || 4)) triviaAnswer(d);
+      }
+      return;
+    }
+    if (m === "trivia_end") {
+      if (d === "1") enterTrivia();
+      else if (d === "*") replayLast();
+      else if (d === "0") backToMenu();
+      return;
+    }
+
     if (d === "*") {
       const b = bufferRef.current;
       if (b) {
@@ -978,7 +1189,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).
@@ -996,6 +1207,15 @@ export default function PhoneSimulator() {
       else setQuestion(text);
       return;
     }
+    if (m === "trivia_play") {
+      const t = text.toLowerCase();
+      if (/\b(repeat|again|say that)\b/.test(t)) { replayLast(); return; }
+      if (/\b(explain|hint|help|clue)\b/.test(t)) { triviaHint(); return; }
+      if (/\b(skip|pass|next)\b/.test(t)) { triviaSkip(); return; }
+      const key = parseVoiceCommand(text);
+      if (key) onKey(key);
+      return;
+    }
     if (/\b(good\s?bye|hang up)\b/i.test(text)) {
       onKey("#");
       setTimeout(() => onKey("#"), 130);
@@ -1003,7 +1223,7 @@ export default function PhoneSimulator() {
     }
     const key = parseVoiceCommand(text);
     if (key) onKey(key);
-  }, [submitCurrent, onKey]);
+  }, [submitCurrent, onKey, replayLast, triviaHint, triviaSkip]);
   holdTalkRef.current = handleHoldTalk;
 
 

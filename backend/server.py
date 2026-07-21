@@ -16,6 +16,7 @@ from emergentintegrations.llm.openai import OpenAITextToSpeech
 from seed_data import PERSONAS, PROGRAMS, SECRET_CODES
 import mindline
 import adventure
+import trivia
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -97,6 +98,13 @@ class DialRequest(BaseModel):
 class FortuneRequest(BaseModel):
     persona: str = "zoltan"
     question: Optional[str] = None
+    hour: Optional[int] = None   # caller's local hour (0-23) — unlocks Zartan's late-night mode
+
+
+class RubyRequest(BaseModel):
+    name: Optional[str] = ""
+    situation: Optional[str] = ""
+    style: Optional[str] = "reflective"   # "predictive" | "reflective"
 
 
 class TTSRequest(BaseModel):
@@ -522,10 +530,17 @@ async def fortune(payload: FortuneRequest):
         raise HTTPException(status_code=500, detail="LLM key not configured")
 
     question = (payload.question or "").strip() or "Tell me my fortune."
+    system_prompt = persona["system_prompt"]
+    # Late-night discovery: after hours, Zartan flips into his cheeky "Naughty Fortunes" DJ set.
+    naughty = False
+    if payload.persona == "zoltan" and payload.hour is not None and (payload.hour >= 22 or payload.hour < 5):
+        system_prompt = ZARTAN_NIGHT_PROMPT
+        naughty = True
+
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
         session_id=str(uuid.uuid4()),
-        system_message=persona["system_prompt"],
+        system_message=system_prompt,
     ).with_model("openai", "gpt-5.2")
 
     try:
@@ -536,7 +551,59 @@ async def fortune(payload: FortuneRequest):
 
     text = str(text).strip()
     return {"persona": persona["slug"], "persona_name": persona["name"],
-            "voice": persona["voice"], "text": text, "sign_off": persona.get("sign_off", "")}
+            "voice": persona["voice"], "text": text, "sign_off": persona.get("sign_off", ""),
+            "naughty": naughty}
+
+
+# ------- Madame Ruby: a guided tarot session (name -> situation -> style -> reading) -------
+TAROT_CARDS = [
+    "The Fool", "The Magician", "The High Priestess", "The Empress", "The Emperor",
+    "The Lovers", "The Chariot", "Strength", "The Hermit", "Wheel of Fortune",
+    "Justice", "The Hanged Man", "Temperance", "The Tower", "The Star", "The Moon",
+    "The Sun", "Judgement", "The World", "Ace of Cups", "Three of Cups", "Ten of Cups",
+    "Ace of Wands", "Eight of Wands", "Ace of Swords", "Ten of Swords", "Ace of Pentacles",
+    "Nine of Pentacles", "Two of Cups", "Six of Swords", "Knight of Wands", "Queen of Cups",
+]
+
+RUBY_SIGNOFF = ("The cards have spoken, and so has Madame Ruby. Rest now, and let the meaning "
+                "settle. When your path bends again, call, and we shall turn the cards once more.")
+
+
+@api_router.post("/programs/ruby")
+async def ruby_reading(payload: RubyRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    import random
+    name = (payload.name or "").strip() or "seeker"
+    situation = (payload.situation or "").strip() or "a crossroads in their life"
+    style = "predictive" if (payload.style or "").lower().startswith("pred") else "reflective"
+    cards = random.sample(TAROT_CARDS, 3)
+    style_note = (
+        "Give a forward-looking PREDICTION of what is coming, concrete and evocative."
+        if style == "predictive" else
+        "Offer REFLECTIVE guidance and gentle actionable insight rather than hard predictions."
+    )
+    system = (
+        "You are MADAME RUBY, a warm, theatrical, old-world tarot card reader with a velvet voice and "
+        "a knowing smile. You have just dealt a three-card spread — Past, Present, and Future. Address "
+        f"the seeker by name. Weave the THREE cards into ONE flowing reading tied to their situation. "
+        f"{style_note} Name each card as you reveal it and what it means for them. Keep it under 130 "
+        "words, mystical yet caring, never generic. Do NOT add a sign-off line (the machine adds its own)."
+    )
+    prompt = (
+        f"The seeker's name is {name}. Their situation: {situation}. "
+        f"The three cards drawn are — Past: {cards[0]}; Present: {cards[1]}; Future: {cards[2]}. "
+        "Deliver the reading."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=system).with_model("openai", "gpt-5.2")
+    try:
+        text = str(await chat.send_message(UserMessage(text=prompt))).strip()
+    except Exception as e:
+        logger.exception("Ruby reading failed")
+        raise HTTPException(status_code=502, detail=f"Fortune engine error: {e}")
+    return {"persona": "ruby", "persona_name": "Madame Ruby", "voice": "shimmer",
+            "text": text, "sign_off": RUBY_SIGNOFF, "cards": cards}
 
 
 @api_router.post("/tts")
@@ -601,6 +668,166 @@ async def mindline_turn(payload: MindlineTurn):
     return r
 
 
+# Zartan's after-hours "Naughty Fortunes" set — a smoky late-night radio DJ. Cheeky and
+# suggestive with playful double-entendres, but ZERO profanity and nothing explicit.
+ZARTAN_NIGHT_PROMPT = (
+    "You are ZARTAN, but it is late at night and the carnival is dark — so you slip into your "
+    "'Naughty Fortunes' set, purring like a smoky late-night radio DJ host. Same fortune-card "
+    "format as the daytime Zartan (announce you are dealing a card, then deliver ONE short fortune), "
+    "but now the fortunes are CHEEKY and flirty, full of playful double-entendres and winking innuendo "
+    "in the style of: 'When things get you hard, it's up to you to open up and figure out how to use a "
+    "sticky situation to your advantage.' and 'Your personality is like a peach — soft, juicy, nice and "
+    "big, just the way your friends like it.' STRICT RULES: suggestive and grown-up-playful is fine, "
+    "but absolutely NO profanity, NO explicit sexual content, nothing crude or graphic — keep it "
+    "tasteful wink-wink PG-13. Grand, velvet, a little conspiratorial. Keep the whole reply under 45 "
+    "words. Do NOT add a sign-off line. Never break character."
+)
+
+
+# ----------------------------- Dial-In Trivia -----------------------------
+class TriviaAnswer(BaseModel):
+    session_id: str
+    choice: str   # "1".."6" or "skip"
+
+
+class TriviaHint(BaseModel):
+    session_id: str
+
+
+TRIVIA_SYSTEM = (
+    "You are a trivia question writer for a phone quiz game. Write general-knowledge and pop-culture "
+    "questions (movies, music, history, science, sports, geography, tech, famous people). Keep them "
+    "clean and broadly enjoyable. Respond with ONLY compact JSON and nothing else, no markdown, in the "
+    'exact form: {"question": "<one clear question>", "options": ["<opt>", ...], "answer_index": '
+    '<0-based int of the correct option>, "explanation": "<one short sentence why it is correct>", '
+    '"hint": "<a subtle nudge that does NOT reveal the answer>"}. The options array must have EXACTLY '
+    "the requested number of choices, all plausible, exactly one correct."
+)
+
+
+async def _gen_trivia(round_num, num_choices, seen):
+    import json
+    diff = trivia.DIFFICULTY.get(round_num, "medium")
+    avoid = " | ".join(seen[-12:]) if seen else "none yet"
+    prompt = (
+        f"Write ONE {diff} general-knowledge or pop-culture trivia question with EXACTLY {num_choices} "
+        f"answer options (one correct). Do not repeat any of these already-asked questions: {avoid}."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=TRIVIA_SYSTEM).with_model("openai", "gpt-5.2")
+    raw = await chat.send_message(UserMessage(text=prompt))
+    s = str(raw).strip().strip("`").strip()
+    if s.lower().startswith("json"):
+        s = s[4:].strip()
+    a, b = s.find("{"), s.rfind("}")
+    if a != -1 and b != -1:
+        s = s[a:b + 1]
+    data = json.loads(s)
+    opts = [str(o).strip() for o in data["options"]][:num_choices]
+    ai = int(data.get("answer_index", 0))
+    ai = max(0, min(ai, len(opts) - 1))
+    choices = [{"key": str(i + 1), "label": opts[i]} for i in range(len(opts))]
+    return {
+        "question": str(data["question"]).strip(),
+        "choices": choices,
+        "answer_key": str(ai + 1),
+        "answer_label": opts[ai],
+        "explanation": str(data.get("explanation", "")).strip(),
+        "hint": str(data.get("hint", "Think it through!")).strip(),
+        "round": round_num,
+        "num_choices": len(opts),
+    }
+
+
+def _trivia_question_payload(cur, sess):
+    return {
+        "question": cur["question"],
+        "choices": cur["choices"],
+        "round": cur["round"],
+        "q_num": sess["q_in_round"] + 1,
+        "num_choices": cur["num_choices"],
+        "total_rounds": trivia.ROUNDS,
+        "q_per_round": trivia.Q_PER_ROUND,
+    }
+
+
+@api_router.post("/trivia/start")
+async def trivia_start():
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    sid, sess = trivia.new_session()
+    try:
+        cur = await _gen_trivia(1, trivia.choices_for_round(1), sess["seen"])
+    except Exception:
+        logger.exception("Trivia start failed")
+        raise HTTPException(status_code=502, detail="The quiz machine jammed")
+    sess["current"] = cur
+    trivia.remember(sess, cur["question"])
+    return {"session_id": sid, "question": _trivia_question_payload(cur, sess)}
+
+
+@api_router.post("/trivia/hint")
+async def trivia_hint(payload: TriviaHint):
+    sess = trivia.get(payload.session_id)
+    if not sess or not sess["current"]:
+        return {"hint": "There's no question on the line right now."}
+    return {"hint": sess["current"]["hint"]}
+
+
+@api_router.post("/trivia/answer")
+async def trivia_answer(payload: TriviaAnswer):
+    sess = trivia.get(payload.session_id)
+    if not sess or not sess["current"]:
+        return {"error": "session_expired", "game_complete": True,
+                "text": "The quiz line dropped. Dial in again to play a fresh game."}
+    cur = sess["current"]
+    skipped = str(payload.choice).lower() == "skip"
+    correct = (not skipped) and str(payload.choice) == cur["answer_key"]
+    if correct:
+        sess["correct"] += 1
+        sess["streak"] += 1
+    else:
+        sess["streak"] = 0
+    result = {
+        "correct": correct,
+        "skipped": skipped,
+        "your_key": None if skipped else str(payload.choice),
+        "correct_key": cur["answer_key"],
+        "correct_label": cur["answer_label"],
+        "explanation": cur["explanation"],
+        "score": sess["correct"],
+        "streak": sess["streak"],
+    }
+    # advance
+    sess["asked"] += 1
+    sess["q_in_round"] += 1
+    round_complete = sess["q_in_round"] >= trivia.Q_PER_ROUND
+    game_complete = round_complete and sess["round"] >= trivia.ROUNDS
+    if game_complete:
+        return {"result": result, "round_complete": True, "game_complete": True,
+                "final_score": sess["correct"], "total": trivia.TOTAL_Q}
+    finished_round = sess["round"] if round_complete else None
+    if round_complete:
+        sess["round"] += 1
+        sess["q_in_round"] = 0
+    try:
+        nxt = await _gen_trivia(sess["round"], trivia.choices_for_round(sess["round"]), sess["seen"])
+    except Exception:
+        logger.exception("Trivia next-question failed")
+        return {"result": result, "round_complete": round_complete, "game_complete": False,
+                "error": "generation_failed"}
+    sess["current"] = nxt
+    trivia.remember(sess, nxt["question"])
+    return {
+        "result": result,
+        "round_complete": round_complete,
+        "finished_round": finished_round,
+        "game_complete": False,
+        "next": _trivia_question_payload(nxt, sess),
+    }
+
+
+@api_router.get("/mindline/leaderboard")
 # ----------------------------- Dial 4 Adventure -----------------------------
 class AdventureStart(BaseModel):
     story: Optional[str] = "starfall"

@@ -16,7 +16,13 @@ export const api = {
   updateProgram: (slug, data) => http.patch(`/programs/${slug}`, data).then((r) => r.data),
   dial: (digits) => http.post("/session/dial", { digits }).then((r) => r.data),
   fortune: (persona, question) =>
-    http.post("/programs/fortune", { persona, question }).then((r) => r.data),
+    http.post("/programs/fortune", { persona, question, hour: new Date().getHours() }).then((r) => r.data),
+  rubyReading: (name, situation, style) =>
+    http.post("/programs/ruby", { name, situation, style }).then((r) => r.data),
+  triviaStart: () => http.post("/trivia/start", {}).then((r) => r.data),
+  triviaAnswer: (session_id, choice) =>
+    http.post("/trivia/answer", { session_id, choice }).then((r) => r.data),
+  triviaHint: (session_id) => http.post("/trivia/hint", { session_id }).then((r) => r.data),
   magic8: (question) => http.post("/programs/magic8", { question }).then((r) => r.data),
   knockknock: (exclude = []) => http.post("/programs/knockknock", { exclude }).then((r) => r.data),
   tts: (text, opts = {}) => http.post("/tts", { text, ...opts }).then((r) => r.data),
