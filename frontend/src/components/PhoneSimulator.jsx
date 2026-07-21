@@ -29,6 +29,9 @@ const STATUS = {
   ruby_name: "MADAME RUBY",
   ruby_situation: "MADAME RUBY",
   ruby_style: "MADAME RUBY",
+  cyndi_topic: "CYNDI & LOUISE",
+  cyndi_name: "CYNDI & LOUISE",
+  cyndi_question: "CYNDI & LOUISE",
   trivia_play: "TRIVIA",
   trivia_end: "GAME OVER",
   exit_confirm: "END CALL?",
@@ -47,7 +50,26 @@ const INPUT_MODES = {
   adventure_ai_theme: { testid: "adventure-theme-input", ph: "name a theme… (pirates, ghosts, dragons, anything)" },
   ruby_name: { testid: "ruby-name-input", ph: "your first name…" },
   ruby_situation: { testid: "ruby-situation-input", ph: "what do you seek guidance on?…" },
+  cyndi_name: { testid: "cyndi-name-input", ph: "your first name…" },
+  cyndi_question: { testid: "cyndi-question-input", ph: "what's going on? ask one thing…" },
 };
+
+// Cyndi & Louise topic menu — keypad 1-9 map to these (Fortune Caller Oracle Bible).
+const CYNDI_TOPICS = [
+  "Love", "Money", "Career", "Family", "Friendship",
+  "Health and Well-Being", "The Future", "Difficult Decisions", "General Reading",
+];
+
+// Every Tuesday the Master rests and Spirit Taco takes key 5 (caller's local day).
+const IS_TUESDAY = new Date().getDay() === 2;
+function relabelForToday(list) {
+  if (!IS_TUESDAY) return list || [];
+  return (list || []).map((p) =>
+    p.slug === "goy"
+      ? { ...p, name: "Spirit Taco", blurb: "Tuesday's traveling food psychic — the Master is resting" }
+      : p
+  );
+}
 
 // MindLine server phase -> simulator mode.
 const PHASE_MODE = { await_name: "mindline_name", confirm: "mindline_confirm", talking: "mindline_talk" };
@@ -143,6 +165,7 @@ export default function PhoneSimulator() {
   const mlSession = useRef({ id: null, phase: null });
   const advSession = useRef({ id: null, node: null });
   const rubyData = useRef({ name: "", situation: "", style: "reflective" });
+  const cyndiData = useRef({ name: "", topic: "General Reading", question: "" });
   const triviaSession = useRef({ id: null, num: 4 });
   const advStories = useRef([]);
   const holdTalkRef = useRef(null);
@@ -277,13 +300,14 @@ export default function PhoneSimulator() {
   const loadFortunePersonas = useCallback(async (intro) => {
     try {
       const ps = await api.getPersonas();
-      setPersonas(ps);
+      const labeled = relabelForToday(ps);
+      setPersonas(labeled);
       setProgram({ slug: "fortune", name: "Fortune Caller", has_personas: true });
       if (intro) push("program", intro);
       push("system", "── FORTUNE TELLER: CHOOSE YOUR ORACLE ──");
-      ps.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
+      labeled.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
       push("system", "Dial 1-9 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
-      speak(oraclePrompt(ps), { voice: ORACLE_VOICE });
+      speak(oraclePrompt(labeled), { voice: ORACLE_VOICE });
     } catch (e) {
       push("error", "// personas unavailable");
     }
@@ -669,6 +693,65 @@ export default function PhoneSimulator() {
       { voice: "shimmer" });
   }, [push, speak, setModeSafe]);
 
+  // ---------------- Cyndi & Louise: guided dual-voice reading ----------------
+  const generateCyndiReading = useCallback(async () => {
+    setModeSafe("busy");
+    push("program", "Cyndi settles in… a second line crackles open… Louise is here.");
+    try {
+      const { name, topic, question } = cyndiData.current;
+      const res = await api.cyndiReading(name, topic, question);
+      const signOff = res.sign_off ? ` ${res.sign_off}` : "";
+      push("program", res.text);
+      if (res.sign_off) push("program", res.sign_off);
+      setModeSafe("result");
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(
+        `${res.text}${signOff}`,
+        { voice: res.voice || "nova" },
+        "To hear that again, press star. To speak with another oracle, press pound. To return to the main menu, dial 0."
+      );
+    } catch (e) {
+      setModeSafe("result");
+      if (isOutOfCredits(e)) {
+        push("error", "// out of minutes — the Universal Key needs more balance");
+        push("system", "Add balance: Profile \u2192 Universal Key \u2192 Add Balance. Then dial again.");
+      } else {
+        push("error", "// Cyndi and Louise lost the connection (engine error)");
+        push("system", "Press \u2731 to try again · # for another oracle · 0 for the main menu.");
+      }
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const askCyndiQuestion = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("cyndi_question");
+    const nm = cyndiData.current.name || "sweetheart";
+    push("program", `Cyndi: Alright ${nm}, tell us what's going on — ask us one clear thing.`);
+    speak(`Alright ${nm}, tell us what's going on. Ask us one clear thing, then press send, or just say it.`,
+      { voice: "nova" });
+  }, [push, speak, setModeSafe]);
+
+  const askCyndiName = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("cyndi_name");
+    push("program", "Cyndi: Beautiful. And what's your first name, hon?");
+    push("program", "Louise: We don't got all day, sweetheart.");
+    speak("Beautiful. And what's your first name, hon? Then press send, or just say it.", { voice: "nova" });
+  }, [push, speak, setModeSafe]);
+
+  const startCyndi = useCallback(() => {
+    currentLine.current = "fortune";
+    cyndiData.current = { name: "", topic: "General Reading", question: "" };
+    setMindlineInput("");
+    setModeSafe("cyndi_topic");
+    push("program", "Cyndi & Louise: Welcome, sweetheart — two voices, one answer. What do you want to talk about?");
+    CYNDI_TOPICS.forEach((t, i) => push("line", `  ${i + 1}  ${t}`));
+    push("system", "Press 1-9 to choose a topic · 0 to return to the main menu.");
+    const spoken = "Welcome, sweetheart. Two voices, one answer. Choose your topic. " +
+      CYNDI_TOPICS.map((t, i) => `For ${t}, press ${i + 1}.`).join(" ");
+    speak(spoken, { voice: "nova" });
+  }, [push, speak, setModeSafe]);
+
   // ---------------- Dial-In Trivia ----------------
   const renderTriviaEnd = useCallback((data) => {
     setModeSafe("trivia_end");
@@ -790,7 +873,9 @@ export default function PhoneSimulator() {
     else if (m === "adventure_ai_theme") aiStartAdventure(val);
     else if (m === "ruby_name") { rubyData.current.name = (val || "").trim() || "seeker"; askRubySituation(); }
     else if (m === "ruby_situation") { rubyData.current.situation = (val || "").trim(); askRubyStyle(); }
-  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure, askRubySituation, askRubyStyle]);
+    else if (m === "cyndi_name") { cyndiData.current.name = (val || "").trim() || "sweetheart"; askCyndiQuestion(); }
+    else if (m === "cyndi_question") { cyndiData.current.question = (val || "").trim(); generateCyndiReading(); }
+  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure, askRubySituation, askRubyStyle, askCyndiQuestion, generateCyndiReading]);
 
   const micStart = useCallback(() => {
     if (listening) return;
@@ -932,6 +1017,7 @@ export default function PhoneSimulator() {
       if (personas[idx]) {
         push("caller", `dialed ${digits} — ${personas[idx].name}`);
         if (personas[idx].slug === "ruby") startRuby();
+        else if (personas[idx].slug === "cyndi") startCyndi();
         else generateFortune(personas[idx].slug);
       } else {
         push("error", "// no such voice on this line");
@@ -961,13 +1047,14 @@ export default function PhoneSimulator() {
       } else if (res.type === "program" && res.has_personas) {
         currentLine.current = "fortune";
         setModeSafe("fortune_persona");
-        setPersonas(res.personas || []);
+        const labeled = relabelForToday(res.personas || []);
+        setPersonas(labeled);
         setProgram(res);
         push("program", `Connecting to ${res.name}...`);
         push("system", "── CHOOSE YOUR ORACLE ──");
-        (res.personas || []).forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
+        labeled.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
         push("system", "Dial 1-9 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
-        speak(oraclePrompt(res.personas || []), { voice: ORACLE_VOICE });
+        speak(oraclePrompt(labeled), { voice: ORACLE_VOICE });
       } else if (res.type === "secret") {
         setModeSafe("secret");
         currentEgg.current = res;
@@ -1001,7 +1088,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, startRuby, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
+  }, [personas, generateFortune, startRuby, startCyndi, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
 
   const lift = useCallback(() => {
     unlockAudio(); // unlock mobile/iOS audio within this user gesture
@@ -1067,8 +1154,9 @@ export default function PhoneSimulator() {
     const inKnock = m === "kk_whos_there" || m === "kk_who" || m === "kk_done";
     const inAdventure = m === "adventure_play" || m === "adventure_end" || m === "adventure_select" || m === "adventure_ai_theme";
     const inRuby = m === "ruby_name" || m === "ruby_situation" || m === "ruby_style";
+    const inCyndi = m === "cyndi_topic" || m === "cyndi_name" || m === "cyndi_question";
     const inTrivia = m === "trivia_play" || m === "trivia_end";
-    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inTrivia || m === "fortune_persona";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inTrivia || m === "fortune_persona";
 
     // ── Secret-code dialing: ✱ then digits then # (e.g. *69#), works from ANY mode ──
     // Submit the code with #
@@ -1198,6 +1286,17 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (m === "cyndi_topic") {
+      if (d === "0") { backToMenu(); return; }
+      const n = parseInt(d, 10);
+      if (n >= 1 && n <= 9) { cyndiData.current.topic = CYNDI_TOPICS[n - 1]; askCyndiName(); }
+      return;
+    }
+    if (m === "cyndi_name" || m === "cyndi_question") {
+      if (d === "0") backToMenu(); // type or speak your answer; 0 returns to the menu
+      return;
+    }
+
     if (m === "trivia_play") {
       if (d === "0") backToMenu();
       else if (d === "*") replayLast();
@@ -1236,7 +1335,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).

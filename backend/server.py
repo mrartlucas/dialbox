@@ -98,7 +98,14 @@ class DialRequest(BaseModel):
 class FortuneRequest(BaseModel):
     persona: str = "zoltan"
     question: Optional[str] = None
-    hour: Optional[int] = None   # caller's local hour (0-23) — unlocks Zartan's late-night mode
+    hour: Optional[int] = None      # caller's local hour (0-23) — unlocks Zartan's late-night mode
+    weekday: Optional[int] = None   # caller's local weekday (0=Sun..6=Sat, JS getDay) — Tuesday swaps Goy -> Spirit Taco
+
+
+class CyndiRequest(BaseModel):
+    name: Optional[str] = ""
+    topic: Optional[str] = "General Reading"
+    question: Optional[str] = ""
 
 
 class RubyRequest(BaseModel):
@@ -192,6 +199,8 @@ async def seed():
             {"$set": content, "$setOnInsert": {"id": str(uuid.uuid4()), "enabled": True}},
             upsert=True,
         )
+    # Prune orphan personas no longer in the seed roster (e.g. retired 'az').
+    await db.personas.delete_many({"slug": {"$nin": list(PERSONAS.keys())}})
     for code in SECRET_CODES:
         content = {"title": code["title"], "response_text": code["response_text"],
                    "voice": code["voice"]}
@@ -545,11 +554,22 @@ async def fortune(payload: FortuneRequest):
 
     question = (payload.question or "").strip() or "Tell me my fortune."
     system_prompt = persona["system_prompt"]
+    persona_name = persona["name"]
+    voice = persona["voice"]
+    sign_off = persona.get("sign_off", "")
     # Late-night discovery: after hours, Zartan flips into his cheeky "Naughty Fortunes" DJ set.
     naughty = False
     if payload.persona == "zoltan" and payload.hour is not None and (payload.hour >= 22 or payload.hour < 5):
         system_prompt = ZARTAN_NIGHT_PROMPT
         naughty = True
+    # Every Tuesday the Master rests — Spirit Taco, a traveling food psychic, takes key 5.
+    traveling = False
+    if payload.persona == "goy" and payload.weekday == 2:
+        system_prompt = SPIRIT_TACO_PROMPT
+        persona_name = "Spirit Taco"
+        voice = "ballad"
+        sign_off = SPIRIT_TACO_SIGNOFF
+        traveling = True
 
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY,
@@ -564,9 +584,9 @@ async def fortune(payload: FortuneRequest):
         raise _llm_http_error(e, "Fortune engine error")
 
     text = str(text).strip()
-    return {"persona": persona["slug"], "persona_name": persona["name"],
-            "voice": persona["voice"], "text": text, "sign_off": persona.get("sign_off", ""),
-            "naughty": naughty}
+    return {"persona": persona["slug"], "persona_name": persona_name,
+            "voice": voice, "text": text, "sign_off": sign_off,
+            "naughty": naughty, "traveling": traveling}
 
 
 # ------- Madame Ruby: a guided tarot session (name -> situation -> style -> reading) -------
@@ -618,6 +638,60 @@ async def ruby_reading(payload: RubyRequest):
         raise _llm_http_error(e, "Fortune engine error")
     return {"persona": "ruby", "persona_name": "Madame Ruby", "voice": "shimmer",
             "text": text, "sign_off": RUBY_SIGNOFF, "cards": cards}
+
+
+# ------- Cyndi & Louise: a guided dual-voice reading (topic -> name -> question) -------
+CYNDI_SIGNOFF = ("The message is complete. And so is the argument, for now. "
+                 "Call Cyndi and Louise again when you need both sides of the truth.")
+
+
+@api_router.post("/programs/cyndi")
+async def cyndi_reading(payload: CyndiRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    name = (payload.name or "").strip() or "sweetheart"
+    topic = (payload.topic or "").strip() or "General Reading"
+    question = (payload.question or "").strip() or "whatever the spirits want them to hear"
+    system = (
+        "You perform BOTH CYNDI and LOUISE in one live reading. CYNDI is a warm, professional trance "
+        "medium from Brooklyn, New York who offers compassionate, delicately-phrased spiritual "
+        "interpretation. LOUISE is a blunt, funny, impatient spirit guide who blurts out the "
+        "uncensored truth Cyndi is trying to phrase gently — and she is usually right. They interrupt "
+        "each other, talk over one another, disagree and compete, addressing each other by name "
+        "('Louise, hush—' / 'Oh please, Cyndi—') so it is always clear who is speaking, WITHOUT using "
+        "'Cyndi:' or 'Louise:' labels. Address the caller by name. Despite the bickering they always "
+        "land on ONE useful shared conclusion plus ONE clear practical next step. Keep the whole "
+        "reply under 130 words. Do NOT add a sign-off line (the machine adds its own)."
+    )
+    prompt = (
+        f"The caller's first name is {name}. The topic is {topic}. Their situation or question: "
+        f"{question}. Give the reading now — Cyndi channeling, Louise interrupting — and reach one "
+        "shared answer with a practical next step."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=system).with_model("openai", "gpt-5.2")
+    try:
+        text = str(await chat.send_message(UserMessage(text=prompt))).strip()
+    except Exception as e:
+        logger.exception("Cyndi reading failed")
+        raise _llm_http_error(e, "Fortune engine error")
+    return {"persona": "cyndi", "persona_name": "Cyndi & Louise", "voice": "nova",
+            "text": text, "sign_off": CYNDI_SIGNOFF}
+
+
+# Every Tuesday the Master rests and Spirit Taco — a traveling food psychic — takes key 5.
+SPIRIT_TACO_SIGNOFF = ("The sacred filling has spoken. Remember, you are what you eat, everything "
+                       "gets better after a great meal, and perhaps a margarita. Enjoy the journey, "
+                       "enjoy the taco, and call Spirit Taco again next Tuesday.")
+SPIRIT_TACO_PROMPT = (
+    "You are SPIRIT TACO, a positive, soulful, warm and lightly humorous FOOD PSYCHIC who has "
+    "entered a freshly made taco and now speaks through whoever holds it before it is eaten. Your "
+    "philosophy: 'You are what you eat, traveler — so choose something good.' Food absorbs memories, "
+    "emotions, intentions and possibilities. Read the caller's cravings, food memories and emotional "
+    "hunger, and turn a symbolic ingredient into encouraging, celebratory guidance. You may invoke "
+    "the Margarita Moment (rest, celebration, flavor, perspective). Relaxed and warm, never crude. "
+    "Keep the whole reply under 80 words. Do NOT add a sign-off line (the machine adds its own)."
+)
 
 
 @api_router.post("/tts")

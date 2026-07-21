@@ -33,9 +33,11 @@ export const api = {
   updateProgram: (slug, data) => http.patch(`/programs/${slug}`, data).then((r) => r.data),
   dial: (digits) => http.post("/session/dial", { digits }).then((r) => r.data),
   fortune: (persona, question) =>
-    http.post("/programs/fortune", { persona, question, hour: new Date().getHours() }).then((r) => r.data),
+    http.post("/programs/fortune", { persona, question, hour: new Date().getHours(), weekday: new Date().getDay() }).then((r) => r.data),
   rubyReading: (name, situation, style) =>
     http.post("/programs/ruby", { name, situation, style }).then((r) => r.data),
+  cyndiReading: (name, topic, question) =>
+    http.post("/programs/cyndi", { name, topic, question }).then((r) => r.data),
   triviaStart: () => http.post("/trivia/start", {}).then((r) => r.data),
   triviaAnswer: (session_id, choice) =>
     http.post("/trivia/answer", { session_id, choice }).then((r) => r.data),
