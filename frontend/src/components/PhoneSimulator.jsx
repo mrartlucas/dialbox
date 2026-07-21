@@ -39,7 +39,7 @@ const INPUT_MODES = {
   magic8_ask: { testid: "magic8-input", ph: "ask your question, then press 8…" },
   kk_whos_there: { testid: "knock-input", ph: "say “who's there?”…" },
   kk_who: { testid: "knock-input", ph: "say “… who?”…" },
-  adventure_ai_theme: { testid: "adventure-theme-input", ph: "name a theme… (pirates, space, dragons)" },
+  adventure_ai_theme: { testid: "adventure-theme-input", ph: "name a theme… (pirates, ghosts, dragons, anything)" },
 };
 
 // MindLine server phase -> simulator mode.
@@ -569,8 +569,8 @@ export default function PhoneSimulator() {
     stopAudio();
     setModeSafe("adventure_ai_theme");
     push("system", "── ENDLESS ADVENTURE ──");
-    push("program", "Name any theme — pirates, dinosaurs, space wizards, a magical bakery — and I'll spin you a tale.");
-    speak("Name any theme for your adventure. For example: pirates, dinosaurs, or a magical bakery. Then press send, or just say it.",
+    push("program", "Name any theme — pirates, dinosaurs, space wizards, a spooky ghost story, anything at all — and I'll spin you a tale.");
+    speak("Name any theme for your adventure. Anything you like — pirates, dragons, or a spooky ghost story. Then press send, or just say it.",
       { voice: OPERATOR_VOICE });
   }, [push, speak, setModeSafe]);
 

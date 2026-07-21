@@ -9,9 +9,12 @@ const ROLE_STYLES = {
 };
 
 export default function CrtConsole({ lines, statusLabel }) {
-  const endRef = useRef(null);
+  const scrollRef = useRef(null);
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Scroll ONLY the console's own container — never the page (scrollIntoView
+    // would drag the whole window down to the monitor on every new line).
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [lines]);
 
   return (
@@ -27,7 +30,7 @@ export default function CrtConsole({ lines, statusLabel }) {
           {statusLabel}
         </span>
       </div>
-      <div className="hide-scrollbar flex-1 space-y-2 overflow-y-auto p-4 font-mono text-sm leading-relaxed flicker">
+      <div ref={scrollRef} className="hide-scrollbar flex-1 space-y-2 overflow-y-auto p-4 font-mono text-sm leading-relaxed flicker">
         {lines.length === 0 && (
           <p className="text-neutral-600">// handset on hook — lift to open the line</p>
         )}
@@ -37,7 +40,6 @@ export default function CrtConsole({ lines, statusLabel }) {
             {l.text}
           </p>
         ))}
-        <div ref={endRef} />
       </div>
     </div>
   );

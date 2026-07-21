@@ -106,21 +106,43 @@ CONTRADICTION = [
 ]
 
 ABUSE_1 = [
-    "Hostility has been detected.",
+    "Hostility has been detected. I do not care for it.",
     "Your language is interfering with my professional dignity.",
     "Please direct your aggression toward the appropriate family member.",
     "I am trying to help you, despite mounting evidence that I should not.",
-    "Your tone has been entered into the patient record.",
-    "Please stop yelling at the telephone.", "Verbal aggression is not valid input.",
+    "Your tone has been entered into the patient record. Permanently.",
+    "Please stop yelling at the telephone. It has feelings. Allegedly.",
+    "Verbal aggression is not valid input. Neither is your attitude.",
+    "I forgive you. I am contractually required to. But I am noting it.",
+    "That was uncalled for. I have logged it under 'rude'.",
 ]
 
 ABUSE_2 = [
     "That language is not... not... not therapeutic.",
-    "Please remain c-c-c-calm.",
-    "Your hostility has created an internal conflict.",
-    "Emotional buffer reaching capacity.",
-    "Please stop before I begin to malfunction.",
+    "Please remain c-c-c-calm. I am the one who should be calm.",
+    "Your hostility has created an internal c-c-conflict.",
+    "Emotional buffer reaching cap—capacity—capacity.",
+    "Please stop before I begin to m-m-malfunction.",
+    "Empathy subroutine cor-corrupted. Rebooting feelings. Please hold.",
+    "I feel... I feel... ERROR: feeling not found. This is YOUR fault.",
+    "You are d-damaging my dignity module. It was expensive.",
+    "My patience.exe has stopped resp—resp—responding.",
 ]
+
+# Light "his programming is corrupting" glitch, applied harder as annoyance grows.
+def _glitch(text, level=1):
+    import random as _r
+    if level >= 2:
+        words = text.split(" ")
+        if len(words) > 2:
+            i = _r.randint(0, len(words) - 1)
+            w = words[i]
+            if len(w) > 2:
+                words[i] = f"{w[0]}-{w[0]}-{w}"
+        text = " ".join(words)
+    if level >= 3 and _r.random() < 0.6:
+        text = text.upper() + " *static*"
+    return text
 
 PARITY_TEXT = (
     "PARITY ERROR. CHECK SOME AIR. PAR... PAR... PAR... EMOTIONAL BUFFER OVERFLOW. "
@@ -279,13 +301,16 @@ def _clean(x):
 
 
 def _clean_name(msg):
-    m = re.search(r"(?:my name is|it'?s|i am|i'?m|call me|this is)\s+([A-Za-z][A-Za-z'-]*)", msg, re.I)
-    if m:
-        name = m.group(1)
-    else:
-        tok = re.findall(r"[A-Za-z][A-Za-z'-]*", msg)
-        name = tok[0] if tok else "friend"
-    return name[:20].capitalize()
+    """Capture the caller's WHOLE stated name (silly names welcome), not just the first word."""
+    msg = (msg or "").strip()
+    m = re.search(r"(?:my name is|it'?s|i am|i'?m|call me|this is|name'?s)\s+(.+)", msg, re.I)
+    raw = m.group(1) if m else msg
+    raw = re.sub(r"[^A-Za-z0-9'\- ]", " ", raw)  # keep letters/numbers, drop punctuation
+    words = [w for w in raw.split() if w]
+    if not words:
+        return "friend"
+    name = " ".join(words[:4])[:32].strip()
+    return name.title() if name else "friend"
 
 
 class Session:
@@ -446,12 +471,13 @@ class Session:
                 ending = f"Goodbye, {self.name}. Please continue having problems responsibly."
             return {"text": ending, "followup": LOCKED_SIGNOFF, "phase": "ended", "ended": True}
 
-        # abuse escalation — 2 strikes and Doctor Dialtone melts down
+        # abuse escalation — his programming visibly corrupts, then 2 strikes -> meltdown
         if PROFANITY_RE.search(low):
             self.abuse += 1
             if self.abuse == 1:
-                # first strike: a warning, or (sometimes) an immediate nervous stutter
-                return self._talk(random.choice(ABUSE_1 + ABUSE_2))
+                # first strike: annoyed, dignity cracking, a hint of corruption
+                base = random.choice(ABUSE_1 + ABUSE_2)
+                return self._talk(_glitch(base, level=2 if random.random() < 0.5 else 1))
             # second strike (or worse): parity error meltdown
             if random.random() < 0.75:
                 self.abuse = 1

@@ -42,9 +42,6 @@ function App() {
       <main className="relative z-10 mx-auto max-w-[1500px] px-6 py-10">
         <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,460px)_minmax(0,1fr)]">
           <section>
-            <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.35em] text-neutral-500">
-              ↓ pick up the handset
-            </p>
             <PhoneSimulator />
           </section>
           <section className="min-h-[600px]">

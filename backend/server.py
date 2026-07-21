@@ -442,13 +442,38 @@ KNOCK_KNOCK_JOKES = [
     {"name": "Robin", "punchline": "Robin you — hand over the snacks!"},
     {"name": "Says", "punchline": "Says me, that's who — now open up!"},
     {"name": "Weekend", "punchline": "A weekend is never long enough!"},
+    {"name": "Poo", "punchline": "Poo-you callin' stinky? Now open up!"},
+    {"name": "Toots", "punchline": "Toots wasn't me — blame the dog!"},
+    {"name": "Stinky feet", "punchline": "Stinky feet that's who — let me in before they spread!"},
+    {"name": "Booger", "punchline": "Booger off — that's the one I was saving!"},
+    {"name": "P.U.", "punchline": "P.U.! Who cut the cheese in there?"},
+    {"name": "Doo", "punchline": "Doo you smell that? You better let me in!"},
+    {"name": "Gas", "punchline": "Gas who let one rip — it definitely wasn't me!"},
+    {"name": "Number Two", "punchline": "Number Two, and I can't hold it much longer!"},
+    {"name": "Wanda", "punchline": "Wanda-ful — now hurry, I really need the potty!"},
+    {"name": "Snot", "punchline": "Snot funny — let me in before I sneeze on the door!"},
+    {"name": "Diaper", "punchline": "Diaper-ently somebody needs a change!"},
+    {"name": "Fart", "punchline": "Fart of me wanted to knock, the other part needs the bathroom!"},
+    {"name": "Egg", "punchline": "Egg-cuse me, but that toot was NOT me!"},
+    {"name": "Butt", "punchline": "Butt I already knocked three times!"},
+    {"name": "Doodoo", "punchline": "Doodoo you know how long I've been out here?!"},
+    {"name": "Iva stinky", "punchline": "Iva stinky diaper and I need help — quick!"},
+    {"name": "Toilet", "punchline": "Toilet you a secret if you open up!"},
 ]
 
+# Curated jokes considered "potty/silly" — used so the frontend can bias toward them for kids.
+KNOCK_POTTY_NAMES = {"Poo", "Toots", "Stinky feet", "Booger", "P.U.", "Doo", "Gas",
+                     "Number Two", "Wanda", "Snot", "Diaper", "Egg", "Butt",
+                     "Doodoo", "Iva stinky", "Toilet"}
+
 KNOCK_SYSTEM = (
-    "You are a family-friendly knock-knock joke writer. Respond with ONLY a compact JSON "
+    "You are a knock-knock joke writer for KIDS. Respond with ONLY a compact JSON "
     "object and nothing else, in the exact form: "
     '{"name": "<the who-s-there word or phrase>", "punchline": "<the reveal, which plays on the name>"}. '
-    "The joke must be clean, clever, kid-safe, and original. No preamble, no markdown, no code fences."
+    "The joke must be original, clever, and SILLY the way kids love — goofy potty humor is "
+    "encouraged: toots, farts, boogers, poop, stinky feet, burps, bathroom emergencies. Keep it "
+    "playful and light — absolutely NO profanity, NO meanness, NO gross bodily fluids beyond "
+    "cartoonish toot/booger/poop gags, nothing scary or adult. No preamble, no markdown, no code fences."
 )
 
 
@@ -460,7 +485,7 @@ class KnockRequest(BaseModel):
 async def knockknock(payload: KnockRequest):
     import random
     import json
-    if EMERGENT_LLM_KEY and random.random() < 0.5:
+    if EMERGENT_LLM_KEY and random.random() < 0.7:
         try:
             chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
@@ -468,7 +493,9 @@ async def knockknock(payload: KnockRequest):
                 system_message=KNOCK_SYSTEM,
             ).with_model("openai", "gpt-5.2")
             raw = await chat.send_message(
-                UserMessage(text="Write one fresh, original, family-friendly knock-knock joke.")
+                UserMessage(text="Write one fresh, original, super-silly knock-knock joke for kids. "
+                                  "Lean into goofy potty humor (toots, boogers, poop, stinky feet, "
+                                  "bathroom emergencies). Keep it clean and playful.")
             )
             s = str(raw).strip().strip("`").strip()
             if s.lower().startswith("json"):
@@ -611,16 +638,21 @@ class AdventureAiChoose(BaseModel):
 
 
 AI_ADV_SYSTEM = (
-    "You are the narrator of a family-friendly, kid-safe interactive audio adventure played over a "
-    "toy telephone. Keep it imaginative, exciting, and lighthearted. STRICT RULES: absolutely no "
-    "horror, gore, graphic violence, death detail, romance, profanity, or scary/disturbing content; "
-    "keep everything suitable for an 8-year-old. Second person ('You...'). Each turn write ONE short "
-    "vivid scene (2 to 4 sentences meant to be spoken aloud) that continues the story, then offer 2 "
-    "or 3 clearly different choices. Respond with ONLY compact JSON and nothing else, no markdown, in "
-    'the exact form: {"text": "<scene>", "choices": [{"key": "1", "label": "<short action>"}, '
-    '{"key": "2", "label": "<short action>"}], "ended": false, "ending": null}. Labels must be under '
-    'eight words. When the adventure reaches a natural conclusion, set "ended" to true, "choices" to '
-    'an empty list, and "ending" to one of "win", "lose", or "neutral".'
+    "You are the narrator of an interactive audio 'choose your own adventure' played over a telephone. "
+    "Match the TONE to whatever theme the player asks for — cheerful, funny, epic, romantic-free, "
+    "mysterious, spooky, scary, or full-on horror. Give them the kind of story THEY want. Stories do "
+    "NOT need to involve phones or telephones, and must NOT rely on phone puns. Write in second person "
+    "('You...'). Build a branching, web-like decision tree: each turn write ONE short vivid scene (2 to "
+    "4 sentences meant to be spoken aloud), then offer 2 or 3 clearly different, meaningful choices that "
+    "lead to genuinely different paths, scenes, and allies. Include REAL stakes and trial-and-error: "
+    "some choices can lead to dead ends, doom, or sudden 'bad' endings; others lead toward victory. A "
+    "single adventure should be capable of reaching several different endings (good, bad, and neutral). "
+    "Keep it free of profanity and graphic gore; scary/spooky is welcome, but stay thrilling rather than "
+    "truly disturbing. Respond with ONLY compact JSON and nothing else, no markdown, in the exact form: "
+    '{"text": "<scene>", "choices": [{"key": "1", "label": "<short action>"}, {"key": "2", "label": '
+    '"<short action>"}], "ended": false, "ending": null}. Labels must be under eight words. When an '
+    'ending is reached, set "ended" to true, "choices" to an empty list, and "ending" to one of "win", '
+    '"lose", "doom", or "neutral".'
 )
 
 
