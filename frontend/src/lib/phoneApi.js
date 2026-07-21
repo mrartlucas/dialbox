@@ -5,6 +5,23 @@ export const API = `${BACKEND_URL}/api`;
 
 const http = axios.create({ baseURL: API });
 
+// A 402 from any endpoint means the shared Universal LLM key is out of credits.
+http.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err && err.response && err.response.status === 402) {
+      try {
+        window.dispatchEvent(new CustomEvent("dialbox-out-of-credits"));
+      } catch (e) {}
+    }
+    return Promise.reject(err);
+  }
+);
+
+export function isOutOfCredits(err) {
+  return !!(err && err.response && err.response.status === 402);
+}
+
 export const api = {
   getMenu: () => http.get("/menu").then((r) => r.data),
   getPersonas: () => http.get("/personas").then((r) => r.data),

@@ -521,6 +521,20 @@ async def knockknock(payload: KnockRequest):
     return {"name": j["name"], "punchline": j["punchline"], "voice": "fable", "ai": False}
 
 
+def _is_budget_error(e):
+    s = str(e).lower()
+    return ("budget has been exceeded" in s or "budget_exceeded" in s
+            or "exceeded your current quota" in s or "insufficient_quota" in s)
+
+
+def _llm_http_error(e, generic="engine error"):
+    """Return 402 when the Universal LLM key is out of credits, else 502."""
+    if _is_budget_error(e):
+        return HTTPException(status_code=402, detail="out_of_credits")
+    return HTTPException(status_code=502, detail=f"{generic}: {e}")
+
+
+
 @api_router.post("/programs/fortune")
 async def fortune(payload: FortuneRequest):
     persona = await db.personas.find_one({"slug": payload.persona}, {"_id": 0})
@@ -547,7 +561,7 @@ async def fortune(payload: FortuneRequest):
         text = await chat.send_message(UserMessage(text=question))
     except Exception as e:
         logger.exception("Fortune generation failed")
-        raise HTTPException(status_code=502, detail=f"Fortune engine error: {e}")
+        raise _llm_http_error(e, "Fortune engine error")
 
     text = str(text).strip()
     return {"persona": persona["slug"], "persona_name": persona["name"],
@@ -601,7 +615,7 @@ async def ruby_reading(payload: RubyRequest):
         text = str(await chat.send_message(UserMessage(text=prompt))).strip()
     except Exception as e:
         logger.exception("Ruby reading failed")
-        raise HTTPException(status_code=502, detail=f"Fortune engine error: {e}")
+        raise _llm_http_error(e, "Fortune engine error")
     return {"persona": "ruby", "persona_name": "Madame Ruby", "voice": "shimmer",
             "text": text, "sign_off": RUBY_SIGNOFF, "cards": cards}
 
@@ -622,7 +636,7 @@ async def tts(payload: TTSRequest):
         audio_b64 = await engine.generate_speech_base64(text=text, model="tts-1", voice=voice)
     except Exception as e:
         logger.exception("TTS generation failed")
-        raise HTTPException(status_code=502, detail=f"TTS engine error: {e}")
+        raise _llm_http_error(e, "TTS engine error")
 
     return {"audio_base64": audio_b64, "format": "mp3", "voice": voice}
 
@@ -645,6 +659,27 @@ VOICEMAIL_TEMPLATES = {
     "_default": {"from_name": "The Line",
                  "text": "You have a missed call. Someone, or something, tried to reach you. Call back soon."},
 }
+
+# A rotating pool of "missed call" voicemails from around the DialBox network. Several of
+# them drop hints about hidden Easter-egg numbers (dial star, the number, then pound).
+VOICEMAIL_POOL = [
+    {"from_name": "Doctor Dialtone",
+     "text": "This is Doctor Dialtone from MindLine. You missed your session. And listen — if you are ever feeling unlucky, whatever you do, do not dial one-three. ...I have said too much. Call me back."},
+    {"from_name": "The Operator",
+     "text": "Operator here, sugar. Somebody keeps trying to reach the great beyond from your line. If that was you, dial star, triple zero, then pound, and we will have a little chat."},
+    {"from_name": "The Bureau of Numbers",
+     "text": "This is the Bureau of Numbers. We have finally cracked the case of what seven did to nine. If you want the whole shocking story, dial star, seven-eight-nine, pound."},
+    {"from_name": "Zartan",
+     "text": "Zartan senses you seek the ultimate truth. The answer to life, the universe, and everything is closer than you think — merely two digits. Dial star, four-two, pound, and all shall be revealed."},
+    {"from_name": "The Fictional Exchange",
+     "text": "Psst. It's your friend from the movies. Here's a secret: any number that begins with five-five-five reaches our fictional exchange. Try dialing star, five-five-five, then any four digits, pound. Nobody's home, but every story is possible."},
+    {"from_name": "A Mysterious Crackle",
+     "text": "*static* They say the old switchboard operator never truly clocked out. On stormy nights, extension one-three-one-three still rings. Dial star, one-three-one-three, pound... if you dare."},
+    {"from_name": "Doc Brown",
+     "text": "Great Scott! If you happen to dial star, nineteen fifty-five, pound, do me a favor and tell my younger self to bet on the horses. Roads? Where we're going, we don't need roads."},
+    {"from_name": "Directory Assistance",
+     "text": "Thank you for calling the impossible directory. For a full menu of the strange and wonderful, dial star, four-one-one, pound. A disappointed ghost is standing by."},
+]
 
 
 @api_router.post("/mindline/start")
@@ -943,9 +978,9 @@ async def adventure_ai_start(payload: AdventureAiStart):
     )
     try:
         node = await _ai_turn(sess, prompt)
-    except Exception:
+    except Exception as e:
         logger.exception("AI adventure start failed")
-        raise HTTPException(status_code=502, detail="The storyteller could not be reached")
+        raise _llm_http_error(e, "The storyteller could not be reached")
     return {"session_id": sid, "title": f"Endless: {sess['theme'][:40]}", "node": node}
 
 
@@ -989,7 +1024,13 @@ async def mindline_leaderboard():
 async def list_voicemails():
     now = now_iso()
     docs = await db.voicemails.find({"expires_at": {"$gt": now}}, {"_id": 0}).sort("created_at", -1).to_list(200)
-    return docs
+    # Always give the caller a couple of fun messages from the network (with hidden hints).
+    import random
+    sample = random.sample(VOICEMAIL_POOL, min(3, len(VOICEMAIL_POOL)))
+    pool_vms = [{"id": f"pool_{i}", "program_slug": "network", "program_name": v["from_name"],
+                 "from_name": v["from_name"], "text": v["text"], "heard": False,
+                 "created_at": now} for i, v in enumerate(sample)]
+    return pool_vms + docs
 
 
 @api_router.post("/voicemails")

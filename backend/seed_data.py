@@ -230,7 +230,7 @@ SECRET_CODES = [
         ),
         "voice": "echo",
         "enabled": True,
-        "clue": "The agent whispers: 'For extraction, dial the ghost's number... five-five-five, two-three-six-eight.'",
+        "clue": "The agent whispers: 'For extraction, dial star, then the ghost's number — five-five-five, two-three-six-eight — and pound. Star, five five five, two three six eight, pound.'",
     },
     {
         "code": "5552368",
@@ -333,7 +333,7 @@ SECRET_CODES = [
         ),
         "voice": "fable",
         "enabled": True,
-        "clue": "A note on the dashboard reads: 'To see how it all turns out, dial the sequel — two-zero-one-five.'",
+        "clue": "A note on the dashboard reads: 'To see how it all turns out, dial the sequel — star, two-zero-one-five, pound.'",
     },
     {
         "code": "2015",
@@ -379,7 +379,7 @@ SECRET_CODES = [
         ),
         "voice": "shimmer",
         "enabled": True,
-        "clue": "Extension one-three-one-three is listed nowhere. But it is listening.",
+        "clue": "Extension one-three-one-three is listed nowhere. Dial star, one three one three, pound. It is listening.",
     },
     {
         "code": "1313",

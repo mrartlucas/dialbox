@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Phone, PhoneOff, PhoneCall, Volume2, Bell, Mic } from "lucide-react";
 import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
-import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect, playWin, playLose, resumeAudioCtx, SILENT_CLIP } from "../lib/phoneApi";
+import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect, playWin, playLose, resumeAudioCtx, SILENT_CLIP, isOutOfCredits } from "../lib/phoneApi";
 import { useSpeechInput } from "../lib/useSpeechInput";
 
 const STATUS = {
@@ -85,6 +85,12 @@ const IOS_NEEDS_SAFARI = IS_IOS && !IS_SAFARI;
 const VOICE_MODE_KEY = "dialbox_voice_mode"; // "tap" | "hold"
 
 const INTER_DIGIT_MS = 1300;
+const STAR_HOLD_MS = 850; // grace period after a lone ✱ before it means replay/voicemail
+// Modes where a lone ✱ (no digits after) means "hear it again".
+const REPLAY_MODES = new Set([
+  "result", "secret", "message", "magic8_answer", "kk_done",
+  "adventure_play", "adventure_end", "adventure_select", "trivia_play", "trivia_end",
+]);
 const OPERATOR_VOICE = "nova"; // spoken IVR menu / operator prompts
 const ORACLE_VOICE = "shimmer"; // spoken Fortune Caller intro
 
@@ -109,6 +115,12 @@ export default function PhoneSimulator() {
   const [incoming, setIncoming] = useState(false);
   const [mindlineInput, setMindlineInput] = useState("");
   const [voiceBlocked, setVoiceBlocked] = useState(false);
+  const [creditsOut, setCreditsOut] = useState(false);
+  useEffect(() => {
+    const h = () => setCreditsOut(true);
+    window.addEventListener("dialbox-out-of-credits", h);
+    return () => window.removeEventListener("dialbox-out-of-credits", h);
+  }, []);
   const [voiceMode, setVoiceMode] = useState(
     () => (typeof localStorage !== "undefined" && localStorage.getItem(VOICE_MODE_KEY)) || "tap"
   );
@@ -117,6 +129,7 @@ export default function PhoneSimulator() {
   const audioRef = useRef(null);
   const ringTimer = useRef(null);
   const digitTimer = useRef(null);
+  const starTimer = useRef(null);
   const bufferRef = useRef("");
   const modeRef = useRef("onhook");
   const lastSpoken = useRef(null);
@@ -900,8 +913,13 @@ export default function PhoneSimulator() {
       );
     } catch (e) {
       setModeSafe("result");
-      push("error", "// the oracle went silent (engine error)");
-      push("system", "To try again, press \u2731. Dial 0 for the main menu, or hang up.");
+      if (isOutOfCredits(e)) {
+        push("error", "// out of minutes — the Universal Key needs more balance");
+        push("system", "Add balance: Profile \u2192 Universal Key \u2192 Add Balance. Then dial again.");
+      } else {
+        push("error", "// the oracle went silent (engine error)");
+        push("system", "To try again, press \u2731. Dial 0 for the main menu, or hang up.");
+      }
     }
   }, [question, push, deliver, setModeSafe]);
 
@@ -1052,6 +1070,48 @@ export default function PhoneSimulator() {
     const inTrivia = m === "trivia_play" || m === "trivia_end";
     const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inTrivia || m === "fortune_persona";
 
+    // ── Secret-code dialing: ✱ then digits then # (e.g. *69#), works from ANY mode ──
+    // Submit the code with #
+    if (d === "#" && bufferRef.current.startsWith("*")) {
+      clearTimeout(starTimer.current);
+      clearTimeout(digitTimer.current);
+      const code = bufferRef.current.slice(1);
+      setBuf("");
+      if (code) processDial(code);
+      else playVoicemails(); // '*#' with no digits = check voicemail
+      return;
+    }
+    // ✱ begins (or restarts) a secret-code entry — barges into whatever is playing
+    if (d === "*") {
+      clearTimeout(starTimer.current);
+      clearTimeout(digitTimer.current);
+      stopAudio();
+      const modeAtStar = m;
+      setBuf("*");
+      starTimer.current = setTimeout(() => {
+        // No digits followed a lone ✱ -> fall back to the classic meaning
+        if (bufferRef.current === "*") {
+          setBuf("");
+          if (modeAtStar === "dialtone") playVoicemails();
+          else if (REPLAY_MODES.has(modeAtStar)) replayLast();
+        }
+      }, STAR_HOLD_MS);
+      return;
+    }
+    // While entering a secret code, digits append to it (auto-connects after a pause)
+    if (bufferRef.current.startsWith("*") && /^[0-9]$/.test(d)) {
+      clearTimeout(starTimer.current);
+      clearTimeout(digitTimer.current);
+      const nb = bufferRef.current.length < 14 ? bufferRef.current + d : bufferRef.current;
+      setBuf(nb);
+      digitTimer.current = setTimeout(() => {
+        const code = nb.slice(1);
+        setBuf("");
+        if (code) processDial(code);
+      }, INTER_DIGIT_MS);
+      return;
+    }
+
     // ## (double pound) = universal exit; opens the End Call? confirmation.
     if (d === "#") {
       if (hashPending.current) {
@@ -1151,19 +1211,6 @@ export default function PhoneSimulator() {
       if (d === "1") enterTrivia();
       else if (d === "*") replayLast();
       else if (d === "0") backToMenu();
-      return;
-    }
-
-    if (d === "*") {
-      const b = bufferRef.current;
-      if (b) {
-        setBuf("");
-        processDial(b); // confirm a longer dialed number
-      } else if (m === "dialtone") {
-        playVoicemails(); // * from the menu = check voicemail
-      } else if (inCall) {
-        replayLast(); // hear it again
-      }
       return;
     }
 
@@ -1314,6 +1361,19 @@ export default function PhoneSimulator() {
             </div>
           </div>
         </div>
+
+        {/* Out-of-credits banner — the shared Universal LLM key ran out of balance */}
+        {creditsOut && (
+          <div
+            data-testid="credits-out-banner"
+            className="mb-4 rounded-sm border border-red-600/50 bg-red-600/10 px-3 py-2 font-mono text-[11px] leading-relaxed text-red-300"
+          >
+            <span className="font-bold uppercase tracking-widest text-red-400">⚠ Network out of minutes</span>
+            <br />
+            The AI voices (oracles, trivia, adventures) share a Universal Key that's out of balance.
+            Top up at <span className="text-red-200">Profile → Universal Key → Add Balance</span> to bring them back.
+          </div>
+        )}
 
         {/* Hook control — lift / hang up, kept up top for quick access */}
         <div className="mb-4">

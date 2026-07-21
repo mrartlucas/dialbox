@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend regression pass for DialBox Batch 11 (secret-code IVR, 007 chaining, voicemail pool, out-of-credits banner). All 7 requested behaviours verified via Playwright against the public URL. No frontend or integration issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "oracle_regression_no_engine_error": "PASS - dial 1 -> select Zartan -> full fortune reading rendered ('Zartan Speaks: BEHOLD! ZARTAN draws a FORTUNE CARD...'). No '// the oracle went silent (engine error)' text appeared. Budget-restored confirmed.",
+    "secret_code_star_666_hash": "PASS - typing ✱ 6 6 6 # showed buffer *666 during entry and connected to '☎ The Devil's Line' secret egg (not the standard 'not in service' message).",
+    "secret_code_auto_connect_star_42": "PASS - typing ✱ 4 2 (no #) with a ~2s pause auto-connected to '☎ The Answer to Everything' (42) secret egg. Buffer cleared to '…' after auto-dial.",
+    "007_chaining_to_5552368": "PASS - ✱ 0 0 7 # played '☎ Secret Agent' with clue '...five-five-five, two-three-six-eight...'. Then, without hanging up, ✱ 5 5 5 2 3 6 8 # connected to '☎ Who Ya Gonna Call?' (Ghostbusters) secret egg. Confirms mid-call barge-in secret chaining.",
+    "voicemail_content_star_hash": "PASS - ✱ # at dial-tone shows '── VOICEMAIL ──' + 'You have 4 messages.' and plays a rotating pool. Verified a named caller entry '☎ Directory Assistance: ... For a full menu of the strange and wonderful, dial star, four-one-one, pound.' — clearly includes a hidden-number hint (*411#).",
+    "lone_star_replay_during_call": "PASS - After the Zartan fortune rendered ('IN CALL'), pressing a lone ✱ (and waiting ~1.4s > STAR_HOLD_MS 850ms) produced the '↺ replaying…' system line and cleared the buffer. Lone ✱ was NOT treated as a secret-code prefix.",
+    "no_keypad_scroll_regression": "PASS - window.scrollY was 0 before and after pressing 1-2-3-4-5. Line Monitor sits below the keypad/controls as designed.",
+    "credits_out_banner": "Not shown (expected — Universal Key budget is currently funded). Banner element exists conditionally in JSX with data-testid='credits-out-banner' and is wired to the 'dialbox-out-of-credits' window event dispatched by the axios 402 interceptor. Not force-triggered per instructions."
+  },
+  "test_report_links": ["/app/test_reports/iteration_11.json"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PhoneSimulator.jsx is 1552 lines — well past the 700-line guideline. Consider extracting per-line modules (fortune/ruby, mindline, magic8, knock, adventure, trivia, voicemail, dialing/secret-code state machine) into hooks/components. Would improve readability and future test targeting.",
+    "onKey has a very large useCallback dependency array; would benefit from splitting into a state-machine reducer.",
+    "Minor: one 404 console error observed while loading the app (non-blocking, did not affect flows). Likely a stale asset or optional resource — worth a quick look in Network tab."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only run)", "frontend": "100% (7/7 requested behaviours pass)"},
+  "test_credentials": "None required",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Keypad testids: keypad-button-0..9, keypad-button-star, keypad-button-hash. CRT: [data-testid='crt-console']. Buffer: [data-testid='dialed-buffer']. Handset: lift-handset-btn / hangup-btn. STAR_HOLD_MS=850, INTER_DIGIT_MS=1300 — poll ~15s for LLM oracle content; poll ~10s for voicemail queue. Named voicemail callers rotate from a pool (Directory Assistance, Doctor Dialtone, The Operator, Zartan, Bureau of Numbers, etc.) — do not assert on a specific one; assert that at least one '☎ <Name>:' line renders. Credits-out banner cannot be triggered without draining the shared LLM key — do not attempt."
+}
