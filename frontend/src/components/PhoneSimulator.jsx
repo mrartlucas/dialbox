@@ -32,6 +32,7 @@ const STATUS = {
   cyndi_topic: "CYNDI & LOUISE",
   cyndi_name: "CYNDI & LOUISE",
   cyndi_question: "CYNDI & LOUISE",
+  zelda_topic: "ZELDA",
   trivia_play: "TRIVIA",
   trivia_end: "GAME OVER",
   exit_confirm: "END CALL?",
@@ -58,6 +59,12 @@ const INPUT_MODES = {
 const CYNDI_TOPICS = [
   "Love", "Money", "Career", "Family", "Friendship",
   "Health and Well-Being", "The Future", "Difficult Decisions", "General Reading",
+];
+
+// Zelda the All-Knowing crystal-vision topic menu — keypad 1-9.
+const ZELDA_TOPICS = [
+  "Love", "Money", "Career", "Family", "Friendship",
+  "Secrets", "Upcoming Event", "Difficult Decision", "General Future",
 ];
 
 // Every Tuesday the Master rests and Spirit Taco takes key 5 (caller's local day).
@@ -752,6 +759,46 @@ export default function PhoneSimulator() {
     speak(spoken, { voice: "nova" });
   }, [push, speak, setModeSafe]);
 
+  // ---------------- Zelda the All-Knowing: crystal-vision broadcast ----------------
+  const generateZeldaReading = useCallback(async (topic) => {
+    setModeSafe("busy");
+    push("program", `Zelda peers into the crystal ball… the mists swirl around ${topic}…`);
+    try {
+      const res = await api.zeldaReading(topic);
+      const signOff = res.sign_off ? ` ${res.sign_off}` : "";
+      push("program", res.text);
+      if (res.sign_off) push("program", res.sign_off);
+      setModeSafe("result");
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(
+        `${res.text}${signOff}`,
+        { voice: res.voice || "shimmer" },
+        "To see that vision again, press star. To speak with another oracle, press pound. To return to the main menu, dial 0."
+      );
+    } catch (e) {
+      setModeSafe("result");
+      if (isOutOfCredits(e)) {
+        push("error", "// out of minutes — the Universal Key needs more balance");
+        push("system", "Add balance: Profile \u2192 Universal Key \u2192 Add Balance. Then dial again.");
+      } else {
+        push("error", "// the crystal ball went cloudy (engine error)");
+        push("system", "Press \u2731 to try again · # for another oracle · 0 for the main menu.");
+      }
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const startZelda = useCallback(() => {
+    currentLine.current = "fortune";
+    setMindlineInput("");
+    setModeSafe("zelda_topic");
+    push("program", "Zelda the All-Knowing: The crystal awaits. Choose the vision you seek.");
+    ZELDA_TOPICS.forEach((t, i) => push("line", `  ${i + 1}  ${t}`));
+    push("system", "Press 1-9 to choose · 0 to return to the main menu.");
+    const spoken = "The crystal awaits. Choose the vision you seek. " +
+      ZELDA_TOPICS.map((t, i) => `For ${t}, press ${i + 1}.`).join(" ");
+    speak(spoken, { voice: "shimmer" });
+  }, [push, speak, setModeSafe]);
+
   // ---------------- Dial-In Trivia ----------------
   const renderTriviaEnd = useCallback((data) => {
     setModeSafe("trivia_end");
@@ -1018,6 +1065,7 @@ export default function PhoneSimulator() {
         push("caller", `dialed ${digits} — ${personas[idx].name}`);
         if (personas[idx].slug === "ruby") startRuby();
         else if (personas[idx].slug === "cyndi") startCyndi();
+        else if (personas[idx].slug === "zelda") startZelda();
         else generateFortune(personas[idx].slug);
       } else {
         push("error", "// no such voice on this line");
@@ -1088,7 +1136,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, startRuby, startCyndi, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
+  }, [personas, generateFortune, startRuby, startCyndi, startZelda, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
 
   const lift = useCallback(() => {
     unlockAudio(); // unlock mobile/iOS audio within this user gesture
@@ -1155,8 +1203,9 @@ export default function PhoneSimulator() {
     const inAdventure = m === "adventure_play" || m === "adventure_end" || m === "adventure_select" || m === "adventure_ai_theme";
     const inRuby = m === "ruby_name" || m === "ruby_situation" || m === "ruby_style";
     const inCyndi = m === "cyndi_topic" || m === "cyndi_name" || m === "cyndi_question";
+    const inZelda = m === "zelda_topic";
     const inTrivia = m === "trivia_play" || m === "trivia_end";
-    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inTrivia || m === "fortune_persona";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inTrivia || m === "fortune_persona";
 
     // ── Secret-code dialing: ✱ then digits then # (e.g. *69#), works from ANY mode ──
     // Submit the code with #
@@ -1297,6 +1346,13 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (m === "zelda_topic") {
+      if (d === "0") { backToMenu(); return; }
+      const n = parseInt(d, 10);
+      if (n >= 1 && n <= 9) generateZeldaReading(ZELDA_TOPICS[n - 1]);
+      return;
+    }
+
     if (m === "trivia_play") {
       if (d === "0") backToMenu();
       else if (d === "*") replayLast();
@@ -1335,7 +1391,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).

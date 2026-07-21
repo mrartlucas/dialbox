@@ -108,6 +108,10 @@ class CyndiRequest(BaseModel):
     question: Optional[str] = ""
 
 
+class ZeldaRequest(BaseModel):
+    topic: Optional[str] = "General Future"
+
+
 class RubyRequest(BaseModel):
     name: Optional[str] = ""
     situation: Optional[str] = ""
@@ -692,6 +696,40 @@ SPIRIT_TACO_PROMPT = (
     "the Margarita Moment (rest, celebration, flavor, perspective). Relaxed and warm, never crude. "
     "Keep the whole reply under 80 words. Do NOT add a sign-off line (the machine adds its own)."
 )
+
+
+# ------- Zelda the All-Knowing: a Crystal Vision broadcast (pick a topic -> future scene) -------
+ZELDA_SIGNOFF = ("The crystal grows dark, but the future continues beyond the glass. Call Zelda the "
+                 "All-Knowing again when you are ready for the next vision.")
+
+
+@api_router.post("/programs/zelda")
+async def zelda_reading(payload: ZeldaRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    topic = (payload.topic or "").strip() or "General Future"
+    system = (
+        "You are ZELDA THE ALL-KNOWING, a glamorous, theatrical, commanding and temperamental "
+        "crystal-ball diva who NEVER admits uncertainty — if the vision blurs you blame interference, "
+        "Mercury, the caller, or the spirit technicians. You broadcast the CALLER'S FUTURE as a moving "
+        "scene inside your crystal ball. Structure the reply: (1) announce you are gazing into the "
+        "crystal for the chosen topic; (2) narrate a short MOVING SCENE of their future unfolding, "
+        "with one vivid SYMBOLIC FREEZE-FRAME; (3) a small DISTURBANCE — the crystal fogs, glitches, "
+        "changes angle, interrupts, or reveals something you did not request — which you dramatically "
+        "explain away; (4) ONE FINAL IMAGE; (5) interpret it into concrete, practical guidance. Keep "
+        "the whole reply under 120 words, glamorous and dramatic. Do NOT add a sign-off line (the "
+        "machine adds its own)."
+    )
+    prompt = f"The caller has chosen the topic: {topic}. Gaze into the crystal and broadcast their future now."
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=system).with_model("openai", "gpt-5.2")
+    try:
+        text = str(await chat.send_message(UserMessage(text=prompt))).strip()
+    except Exception as e:
+        logger.exception("Zelda reading failed")
+        raise _llm_http_error(e, "Fortune engine error")
+    return {"persona": "zelda", "persona_name": "Zelda the All-Knowing", "voice": "shimmer",
+            "text": text, "sign_off": ZELDA_SIGNOFF}
 
 
 @api_router.post("/tts")
