@@ -34,6 +34,10 @@ const STATUS = {
   cyndi_question: "CYNDI & LOUISE",
   zelda_topic: "ZELDA",
   nyx_build: "NYX · STARS",
+  count_menu: "COUNT",
+  count_category: "COUNT",
+  count_number: "COUNT",
+  count_magic: "MATHEMAGIC",
   trivia_play: "TRIVIA",
   trivia_end: "GAME OVER",
   exit_confirm: "END CALL?",
@@ -54,6 +58,8 @@ const INPUT_MODES = {
   ruby_situation: { testid: "ruby-situation-input", ph: "what do you seek guidance on?…" },
   cyndi_name: { testid: "cyndi-name-input", ph: "your first name…" },
   cyndi_question: { testid: "cyndi-question-input", ph: "what's going on? ask one thing…" },
+  count_number: { testid: "count-number-input", ph: "enter a number (birth year, a date…) then Send or #" },
+  count_magic: { testid: "count-magic-input", ph: "enter your final answer, then Send or #" },
 };
 
 // Cyndi & Louise topic menu — keypad 1-9 map to these (Fortune Caller Oracle Bible).
@@ -73,6 +79,13 @@ const NYX_STARS = [
   "Origin", "Bond", "Voice", "Foundation", "Crossroads",
   "Desire", "Shadow", "Power", "Becoming",
 ];
+
+// Count Clairvoyant number-reading categories — keypad 1-9.
+const COUNT_CATEGORIES = [
+  "Love", "Money", "Career", "Family", "Friendship",
+  "Lucky Numbers", "Important Dates", "Difficult Decisions", "General",
+];
+const MATHEMAGIC_ANSWER = "1089";
 
 // Every Tuesday the Master rests and Spirit Taco takes key 5 (caller's local day).
 const IS_TUESDAY = new Date().getDay() === 2;
@@ -150,6 +163,8 @@ export default function PhoneSimulator() {
   const [playing, setPlaying] = useState(false);
   const [incoming, setIncoming] = useState(false);
   const [mindlineInput, setMindlineInput] = useState("");
+  const mindlineInputRef = useRef("");
+  useEffect(() => { mindlineInputRef.current = mindlineInput; }, [mindlineInput]);
   const [voiceBlocked, setVoiceBlocked] = useState(false);
   const [creditsOut, setCreditsOut] = useState(false);
   useEffect(() => {
@@ -181,6 +196,7 @@ export default function PhoneSimulator() {
   const rubyData = useRef({ name: "", situation: "", style: "reflective" });
   const cyndiData = useRef({ name: "", topic: "General Reading", question: "" });
   const nyxStars = useRef([]);
+  const countData = useRef({ category: "General" });
   const triviaSession = useRef({ id: null, num: 4 });
   const advStories = useRef([]);
   const holdTalkRef = useRef(null);
@@ -851,6 +867,95 @@ export default function PhoneSimulator() {
     speak(spoken, { voice: "alloy" });
   }, [push, speak, setModeSafe]);
 
+  // ---------------- Count Clairvoyant: number divination + mathemagic ----------------
+  const generateCountReading = useCallback(async (category, number) => {
+    setModeSafe("busy");
+    push("program", `The Count runs a pale finger down the digits of ${number || "your number"}…`);
+    try {
+      const res = await api.countReading(category, number);
+      const signOff = res.sign_off ? ` ${res.sign_off}` : "";
+      push("program", res.text);
+      if (res.sign_off) push("program", res.sign_off);
+      setModeSafe("result");
+      push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+      deliver(
+        `${res.text}${signOff}`,
+        { voice: res.voice || "echo" },
+        "To hear that again, press star. To speak with another oracle, press pound. To return to the main menu, dial 0."
+      );
+    } catch (e) {
+      setModeSafe("result");
+      if (isOutOfCredits(e)) {
+        push("error", "// out of minutes — the Universal Key needs more balance");
+        push("system", "Add balance: Profile \u2192 Universal Key \u2192 Add Balance. Then dial again.");
+      } else {
+        push("error", "// the Count vanished into the dark (engine error)");
+        push("system", "Press \u2731 to try again · # for another oracle · 0 for the main menu.");
+      }
+    }
+  }, [push, deliver, setModeSafe]);
+
+  const revealMathemagic = useCallback((answer) => {
+    const clean = (answer || "").replace(/\D/g, "");
+    setMindlineInput("");
+    setModeSafe("result");
+    let line, speech;
+    if (clean === MATHEMAGIC_ANSWER) {
+      line = "Count Clairvoyant: Behold! My sealed prophecy read… one thousand and eighty-nine. As it forever shall. Your mind holds no secrets from the Count.";
+      speech = "Behold. My sealed prophecy read one thousand and eighty nine. As it forever shall. Your mind holds no secrets from the Count.";
+    } else {
+      line = `Count Clairvoyant: Curious… the crypt holds one thousand and eighty-nine, yet you bring me ${clean || "nothing at all"}. The dead never err at arithmetic — recount, mortal, and the number shall obey.`;
+      speech = `Curious. The crypt holds one thousand and eighty nine, yet you bring me ${clean || "nothing at all"}. The dead never err at arithmetic. Recount, mortal, and the number shall obey.`;
+    }
+    push("program", line);
+    push("system", "Press \u2731 to hear it again · # for another oracle · 0 for the main menu · or hang up.");
+    deliver(speech, { voice: "echo" },
+      "To hear that again, press star. For another oracle, press pound. For the main menu, dial 0.");
+  }, [push, deliver, setModeSafe]);
+
+  const askCountNumber = useCallback((category) => {
+    countData.current.category = category;
+    setMindlineInput("");
+    setModeSafe("count_number");
+    push("program", `Count Clairvoyant: ${category}. A worthy question. Give me a number — a birth year, a fateful date, any number your soul offers.`);
+    push("system", "Enter digits then press Send or # · you may type or speak them.");
+    speak(`${category}. A worthy question. Give me a number. A birth year, a fateful date, any number your soul offers. Enter it, then send.`,
+      { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
+  const startCountNumber = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("count_category");
+    push("program", "Count Clairvoyant: Which corner of your fate shall the numbers illuminate?");
+    COUNT_CATEGORIES.forEach((c, i) => push("line", `  ${i + 1}  ${c}`));
+    push("system", "Press 1-9 to choose · 0 to return.");
+    const spoken = "Which corner of your fate shall the numbers illuminate? " +
+      COUNT_CATEGORIES.map((c, i) => `For ${c}, press ${i + 1}.`).join(" ");
+    speak(spoken, { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
+  const startCountMagic = useCallback(() => {
+    setMindlineInput("");
+    setModeSafe("count_magic");
+    push("program", "Count Clairvoyant: Mathemagic — my darkest art. Think of a three-digit number whose first and last digits differ by at least two. Do not speak it.");
+    push("program", "Reverse it. Subtract the smaller from the larger. Reverse THAT result, and add the two together.");
+    push("system", "I have sealed my prophecy in the crypt. Enter your final answer, then Send or #.");
+    const spoken = "Mathemagic. My darkest art. Think of a three digit number whose first and last digits differ by at least two. Do not speak it. Reverse it. Subtract the smaller from the larger. Now reverse that result, and add the two together. I have already sealed my prophecy in the crypt. Enter your final answer, then send.";
+    speak(spoken, { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
+  const startCount = useCallback(() => {
+    currentLine.current = "fortune";
+    setMindlineInput("");
+    setModeSafe("count_menu");
+    push("program", "Count Clairvoyant: Ahhh… a living mind, warm with numbers. What shall we do?");
+    push("line", "  1  A Number Reading");
+    push("line", "  2  Mathemagic (I shall read your mind)");
+    push("system", "Press 1 or 2 · 0 to return to the main menu.");
+    speak("Ahhh, a living mind, warm with numbers. Press one for a number reading, or press two for mathemagic, and I shall read your mind. Press zero to leave.",
+      { voice: "echo" });
+  }, [push, speak, setModeSafe]);
+
   // ---------------- Dial-In Trivia ----------------
   const renderTriviaEnd = useCallback((data) => {
     setModeSafe("trivia_end");
@@ -965,16 +1070,19 @@ export default function PhoneSimulator() {
 
   const submitCurrent = useCallback((val) => {
     const m = modeRef.current;
-    if (m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk") mindlineSend(val);
-    else if (m === "magic8_ask") askMagic8(val);
-    else if (m === "kk_whos_there") kkRespond(val);
-    else if (m === "kk_who") kkReveal(val);
-    else if (m === "adventure_ai_theme") aiStartAdventure(val);
-    else if (m === "ruby_name") { rubyData.current.name = (val || "").trim() || "seeker"; askRubySituation(); }
-    else if (m === "ruby_situation") { rubyData.current.situation = (val || "").trim(); askRubyStyle(); }
-    else if (m === "cyndi_name") { cyndiData.current.name = (val || "").trim() || "sweetheart"; askCyndiQuestion(); }
-    else if (m === "cyndi_question") { cyndiData.current.question = (val || "").trim(); generateCyndiReading(); }
-  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure, askRubySituation, askRubyStyle, askCyndiQuestion, generateCyndiReading]);
+    const v = typeof val === "string" ? val : mindlineInputRef.current;
+    if (m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk") mindlineSend(v);
+    else if (m === "magic8_ask") askMagic8(v);
+    else if (m === "kk_whos_there") kkRespond(v);
+    else if (m === "kk_who") kkReveal(v);
+    else if (m === "adventure_ai_theme") aiStartAdventure(v);
+    else if (m === "ruby_name") { rubyData.current.name = (v || "").trim() || "seeker"; askRubySituation(); }
+    else if (m === "ruby_situation") { rubyData.current.situation = (v || "").trim(); askRubyStyle(); }
+    else if (m === "cyndi_name") { cyndiData.current.name = (v || "").trim() || "sweetheart"; askCyndiQuestion(); }
+    else if (m === "cyndi_question") { cyndiData.current.question = (v || "").trim(); generateCyndiReading(); }
+    else if (m === "count_number") { generateCountReading(countData.current.category, (v || "").trim()); }
+    else if (m === "count_magic") { revealMathemagic((v || "").trim()); }
+  }, [mindlineSend, askMagic8, kkRespond, kkReveal, aiStartAdventure, askRubySituation, askRubyStyle, askCyndiQuestion, generateCyndiReading, generateCountReading, revealMathemagic]);
 
   const micStart = useCallback(() => {
     if (listening) return;
@@ -1119,6 +1227,7 @@ export default function PhoneSimulator() {
         else if (personas[idx].slug === "cyndi") startCyndi();
         else if (personas[idx].slug === "zelda") startZelda();
         else if (personas[idx].slug === "nyx") startNyx();
+        else if (personas[idx].slug === "count") startCount();
         else generateFortune(personas[idx].slug);
       } else {
         push("error", "// no such voice on this line");
@@ -1189,7 +1298,7 @@ export default function PhoneSimulator() {
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");
     }
-  }, [personas, generateFortune, startRuby, startCyndi, startZelda, startNyx, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
+  }, [personas, generateFortune, startRuby, startCyndi, startZelda, startNyx, startCount, push, speak, deliver, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, setModeSafe]);
 
   const lift = useCallback(() => {
     unlockAudio(); // unlock mobile/iOS audio within this user gesture
@@ -1258,8 +1367,9 @@ export default function PhoneSimulator() {
     const inCyndi = m === "cyndi_topic" || m === "cyndi_name" || m === "cyndi_question";
     const inZelda = m === "zelda_topic";
     const inNyx = m === "nyx_build";
+    const inCount = m === "count_menu" || m === "count_category" || m === "count_number" || m === "count_magic";
     const inTrivia = m === "trivia_play" || m === "trivia_end";
-    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inNyx || inTrivia || m === "fortune_persona";
+    const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inNyx || inCount || inTrivia || m === "fortune_persona";
 
     // ── Secret-code dialing: ✱ then digits then # (e.g. *69#), works from ANY mode ──
     // Submit the code with #
@@ -1309,6 +1419,11 @@ export default function PhoneSimulator() {
       if (modeRef.current === "nyx_build") {
         if (nyxStars.current.length >= 1) generateNyxReading(nyxStars.current.slice());
         else push("system", "Place at least one star (press 1-9), then press #.");
+        return;
+      }
+      // In the Count's number / mathemagic entry, # submits the typed-or-keyed number.
+      if (modeRef.current === "count_number" || modeRef.current === "count_magic") {
+        submitCurrent();
         return;
       }
       if (hashPending.current) {
@@ -1423,6 +1538,28 @@ export default function PhoneSimulator() {
       return;
     }
 
+    if (m === "count_menu") {
+      if (d === "1") startCountNumber();
+      else if (d === "2") startCountMagic();
+      else if (d === "0") backToMenu();
+      return;
+    }
+    if (m === "count_category") {
+      if (d === "0") { backToMenu(); return; }
+      const n = parseInt(d, 10);
+      if (n >= 1 && n <= 9) askCountNumber(COUNT_CATEGORIES[n - 1]);
+      return;
+    }
+    if (m === "count_number" || m === "count_magic") {
+      // keypad digits append to the entry (also typable / speakable); # submits (handled above).
+      if (/^[0-9]$/.test(d)) {
+        const nv = mindlineInputRef.current + d;
+        mindlineInputRef.current = nv;
+        setMindlineInput(nv);
+      }
+      return;
+    }
+
     if (m === "trivia_play") {
       if (d === "0") backToMenu();
       else if (d === "*") replayLast();
@@ -1461,7 +1598,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, startCountNumber, startCountMagic, askCountNumber, submitCurrent, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).

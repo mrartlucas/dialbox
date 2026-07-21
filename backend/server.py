@@ -116,6 +116,11 @@ class NyxRequest(BaseModel):
     stars: List[int] = []   # sequence of pressed keys 1-9, each = a star meaning
 
 
+class CountRequest(BaseModel):
+    category: Optional[str] = "General"
+    number: Optional[str] = ""
+
+
 class RubyRequest(BaseModel):
     name: Optional[str] = ""
     situation: Optional[str] = ""
@@ -795,6 +800,61 @@ async def nyx_reading(payload: NyxRequest):
     return {"persona": "nyx", "persona_name": "Nyx of the Nine Stars", "voice": "alloy",
             "text": text, "sign_off": NYX_SIGNOFF, "moon_phase": phase_name,
             "illumination": illum, "stars": named}
+
+
+# ------- Count Clairvoyant: gothic number-divination (pick a category -> enter a number) -------
+COUNT_SIGNOFF = ("Your thoughts are hidden once more, but not from me. Call Count Clairvoyant again "
+                 "when your mind begins to wander.")
+
+
+def _numerology(num_str):
+    digits = [int(c) for c in str(num_str) if c.isdigit()]
+    total = sum(digits)
+    root = total
+    while root > 9 and root not in (11, 22, 33):
+        root = sum(int(c) for c in str(root))
+    clean = "".join(c for c in str(num_str) if c.isdigit())
+    palindrome = bool(clean) and clean == clean[::-1]
+    repeats = sorted({d for d in digits if digits.count(d) > 1})
+    return {"digits": digits, "sum": total, "root": root,
+            "palindrome": palindrome, "repeats": repeats}
+
+
+@api_router.post("/programs/count")
+async def count_reading(payload: CountRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+    category = (payload.category or "General").strip() or "General"
+    number = (payload.number or "").strip()
+    if not any(c.isdigit() for c in number):
+        number = "7"
+    n = _numerology(number)
+    system = (
+        "You are COUNT CLAIRVOYANT, a gothic vampire mind reader and mathemagician with aristocratic "
+        "pride, a taste for MELODRAMA and delicious MACABRE humor. Smooth, hypnotic, faintly "
+        "Transylvanian, charming rather than frightening. You divine meaning from the caller's chosen "
+        "NUMBER for the given topic. Weave in the numerology you are given (the digit sum and its "
+        "reduced 'root' number, any repeated digits, whether it reads the same backward). Lace the "
+        "reading with playful gallows humor (wry asides about doom, dust, tombstones and delightful "
+        "mortality) that stays witty and theatrical, never grim or disturbing. Deliver a suave, darkly "
+        "funny reading under 90 words. Do NOT add a sign-off line (the machine adds its own)."
+    )
+    prompt = (
+        f"Topic: {category}. The caller's number is {number}. Its digits sum to {n['sum']}, "
+        f"reducing to the root number {n['root']}."
+        + (f" The digits {n['repeats']} recur, an omen amplified." if n["repeats"] else "")
+        + (" The number reads the same backward — a mirror across time." if n["palindrome"] else "")
+        + " Divine what this number foretells about the topic."
+    )
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=system).with_model("openai", "gpt-5.2")
+    try:
+        text = str(await chat.send_message(UserMessage(text=prompt))).strip()
+    except Exception as e:
+        logger.exception("Count reading failed")
+        raise _llm_http_error(e, "Fortune engine error")
+    return {"persona": "count", "persona_name": "Count Clairvoyant", "voice": "echo",
+            "text": text, "sign_off": COUNT_SIGNOFF, "root": n["root"], "sum": n["sum"]}
 
 
 @api_router.post("/tts")
