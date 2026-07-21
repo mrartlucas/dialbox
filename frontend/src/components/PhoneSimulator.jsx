@@ -328,6 +328,8 @@ export default function PhoneSimulator() {
       const name = e && e.name;
       if (name === "AbortError") return;
       push("error", "// audio channel unavailable");
+      // Audio failed (blocked/unsupported) — still advance any chained step so flows never stall.
+      if (onDone) onDone();
     }
   }, [push, getPlayer]);
 
