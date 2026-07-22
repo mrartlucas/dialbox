@@ -48,17 +48,18 @@ export function setDevKeyboardEnabled(enabled) {
   );
 }
 
-// Map a raw KeyboardEvent to a DialBox key, or null. Supports top-row + numpad digits,
-// Shift+8 / numpad-* for '*', Shift+3 for '#', and dev aliases P/S for '#'.
+// Map a raw KeyboardEvent to a DialBox key, or null. Shift combinations MUST be checked
+// before the plain-digit fallback, because KeyboardEvent.key is often "8"/"3" while shiftKey
+// is true (so the digit branch would otherwise swallow Shift+8 / Shift+3).
 export function keyboardEventToDialKey(e) {
   const { key, code, shiftKey } = e;
-  if (/^[0-9]$/.test(key)) return key; // top row + numpad digits both surface as key "0".."9"
   if (key === "*" || code === "NumpadMultiply") return "*";
   if (key === "#") return "#";
-  if (shiftKey && (code === "Digit8" || key === "8")) return "*"; // Shift+8
-  if (shiftKey && (code === "Digit3" || key === "3")) return "#"; // Shift+3 (layout dependent)
+  if (shiftKey && code === "Digit8") return "*"; // Shift+8
+  if (shiftKey && code === "Digit3") return "#"; // Shift+3
   const lower = (key || "").toLowerCase();
   if (lower === "p" || lower === "s") return "#"; // dev aliases
+  if (/^[0-9]$/.test(key)) return key; // unshifted top-row + numpad digits
   return null;
 }
 
