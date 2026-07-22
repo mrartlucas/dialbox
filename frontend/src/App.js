@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { api } from "@/lib/phoneApi";
@@ -56,6 +57,9 @@ function App() {
                   <DialogTitle className="font-mono text-lg tracking-tight text-neutral-100">
                     Cell2Jack <span className="text-neutral-600">/</span> DTMF Test Lab
                   </DialogTitle>
+                  <DialogDescription className="font-mono text-[11px] text-neutral-500">
+                    Experimental microphone-based DTMF detection for Cell2Jack / physical keypad testing.
+                  </DialogDescription>
                 </DialogHeader>
                 <DtmfTestLab />
               </DialogContent>

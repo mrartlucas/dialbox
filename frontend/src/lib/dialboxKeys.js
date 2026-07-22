@@ -24,8 +24,7 @@ export const SETTINGS_CHANGED_EVENT = "dialbox-settings-changed";
 
 const DEV_KEYBOARD_LS_KEY = "dialbox_dev_keyboard_enabled";
 
-export const isDevBuild = () =>
-  typeof process !== "undefined" && process.env && process.env.NODE_ENV === "development";
+export const isDevBuild = () => process.env.NODE_ENV !== "production";
 
 // Dev keyboard controls: default ON in development builds, OFF in production builds.
 export function getDevKeyboardEnabled() {

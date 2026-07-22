@@ -1,0 +1,44 @@
+{
+  "summary": "Retest of iteration_17 fixes for DialBox dev keyboard default-ON and DTMF Lab a11y warning. Both fixes verified on a fresh browser context (localStorage cleared).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "fix_verification": {
+    "FIX_1_dev_keyboard_default_on": {
+      "status": "PASS",
+      "evidence": [
+        "On fresh context (localStorage cleared) after clicking lift-handset-btn, [data-testid=dev-keyboard-hint] is visible with text 'keyboard: 0–9  *  #' without any manual toggling.",
+        "Physical keyboard '1' navigates DialBox: CRT tail contains '> dialed 1' and Fortune Caller oracle context (Cyndi/Madame/Zoltar keywords detected); LINE MONITOR shows CONNECTING.",
+        "Physical keyboard '3' navigates when handset is off-hook (verified in first pass).",
+        "DTMF Lab 'Enable Development Keyboard Controls' checkbox is checked by default on a fresh context (visible green check in the DTMF Lab screenshot)."
+      ]
+    },
+    "FIX_1_typing_context_guard": {
+      "status": "PASS",
+      "evidence": "With handset off-hook, focused a visible text input; pressing '5' typed '5' into the input (input.value=='5') and did not navigate — isTypingContext guard still works."
+    },
+    "FIX_2_dtmf_lab_dialog_description": {
+      "status": "PASS",
+      "evidence": "Opening [data-testid=open-dtmf-lab-btn] produced NO Radix/React console warning about 'Missing Description or aria-describedby for DialogContent'. The [role=dialog] has aria-describedby='radix-:r2:' pointing to the new DialogDescription. Zero console warnings/errors captured during open."
+    },
+    "regression_keypad_and_dtmf_simulated": {
+      "status": "PASS",
+      "evidence": "On-screen keypad-button-1 (fresh lift) reaches Fortune Caller flow (LINE MONITOR shows CONNECTING). DTMF Lab 'RUN SIMULATED TEST (NO HARDWARE)' (dtmf-simulate-all-btn) still reports 'Keypad test: 12/12 keys detected ✓ complete'."
+    }
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "isDevBuild switching to `process.env.NODE_ENV !== 'production'` is correct for CRA — the compile-time inlining works as expected in the browser bundle.",
+    "DialogDescription is present and referenced by aria-describedby — a11y warning cleared."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iteration_18 confirmed both narrow fixes: (1) dev keyboard controls default ON on fresh contexts — hint visible immediately after lift, physical digits navigate, DTMF Lab toggle checkbox checked by default; (2) DTMF Lab Dialog now has DialogDescription and produces no Radix a11y warning. Regression: keypad-1 and DTMF simulated test 12/12 both still pass."
+}
