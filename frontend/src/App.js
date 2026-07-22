@@ -1,11 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import "@/App.css";
-import { PhoneIncoming, Radio } from "lucide-react";
+import { PhoneIncoming, Radio, Waves } from "lucide-react";
 import PhoneSimulator from "@/components/PhoneSimulator";
 import ConfigPanel from "@/components/ConfigPanel";
+import DtmfTestLab from "@/components/DtmfTestLab";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { api } from "@/lib/phoneApi";
 
 function App() {
+  const [labOpen, setLabOpen] = useState(false);
   useEffect(() => {
     api.getMenu().catch(() => {});
   }, []);
@@ -29,11 +38,34 @@ function App() {
               </p>
             </div>
           </div>
-          <div className="hidden items-center gap-2 sm:flex">
-            <Radio className="h-4 w-4 crt-glow animate-pulse" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-neutral-400">
-              standalone mode · network live
-            </span>
+          <div className="flex items-center gap-3">
+            <Dialog open={labOpen} onOpenChange={setLabOpen}>
+              <DialogTrigger asChild>
+                <button
+                  data-testid="open-dtmf-lab-btn"
+                  className="tactile flex items-center gap-2 rounded-sm border-2 border-sky-500/70 bg-sky-500/10 px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-sky-300"
+                >
+                  <Waves className="h-4 w-4" /> DTMF Test Lab
+                </button>
+              </DialogTrigger>
+              <DialogContent
+                data-testid="dtmf-lab-dialog"
+                className="max-h-[90vh] max-w-3xl overflow-y-auto border-2 border-neutral-800 bg-neutral-950"
+              >
+                <DialogHeader>
+                  <DialogTitle className="font-mono text-lg tracking-tight text-neutral-100">
+                    Cell2Jack <span className="text-neutral-600">/</span> DTMF Test Lab
+                  </DialogTitle>
+                </DialogHeader>
+                <DtmfTestLab />
+              </DialogContent>
+            </Dialog>
+            <div className="hidden items-center gap-2 sm:flex">
+              <Radio className="h-4 w-4 crt-glow animate-pulse" />
+              <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-neutral-400">
+                standalone mode · network live
+              </span>
+            </div>
           </div>
         </div>
       </header>

@@ -5,6 +5,16 @@ import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
 import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect, playWin, playLose, resumeAudioCtx, SILENT_CLIP, isOutOfCredits } from "../lib/phoneApi";
 import { useSpeechInput } from "../lib/useSpeechInput";
+import {
+  isValidKey,
+  isValidSource,
+  keyboardEventToDialKey,
+  isTypingContext,
+  getDevKeyboardEnabled,
+  EXTERNAL_KEY_EVENT,
+  KEY_DISPATCHED_EVENT,
+  SETTINGS_CHANGED_EVENT,
+} from "../lib/dialboxKeys";
 
 const STATUS = {
   onhook: "ON HOOK",
@@ -219,6 +229,7 @@ export default function PhoneSimulator() {
   const [playing, setPlaying] = useState(false);
   const [incoming, setIncoming] = useState(false);
   const [mindlineInput, setMindlineInput] = useState("");
+  const [devKeyboard, setDevKeyboard] = useState(getDevKeyboardEnabled());
   const mindlineInputRef = useRef("");
   useEffect(() => { mindlineInputRef.current = mindlineInput; }, [mindlineInput]);
   const [voiceBlocked, setVoiceBlocked] = useState(false);
@@ -1911,6 +1922,54 @@ export default function PhoneSimulator() {
     }, INTER_DIGIT_MS);
   }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, startCountNumber, startCountMagic, startCount, askCountNumber, startMagic1089, startMagic37, startMagicKaprekar, startThreeGates, startChallenge, recordGateChoice, submitCurrent, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
 
+  // ---------------------------------------------------------------------------
+  // Shared DialBox input dispatcher. EVERY key from EVERY source (on-screen keypad,
+  // computer keyboard, voice, DTMF audio, telephone, tests) flows through here into the
+  // single onKey() navigation handler — menu logic is never duplicated per input method.
+  // ---------------------------------------------------------------------------
+  const lastKeyInfo = useRef({ key: null, source: null, ts: 0 });
+  const dispatchDialBoxKey = useCallback((key, source = "screen") => {
+    if (!isValidKey(key)) return false;
+    if (!isValidSource(source)) source = "screen";
+    lastKeyInfo.current = { key, source, ts: Date.now() };
+    window.dispatchEvent(
+      new CustomEvent(KEY_DISPATCHED_EVENT, { detail: { key, source, ts: lastKeyInfo.current.ts } })
+    );
+    onKey(key);
+    return true;
+  }, [onKey]);
+
+  // Bridge for decoupled components (DTMF Test Lab, automated tests) to feed the live box.
+  useEffect(() => {
+    const handler = (e) => {
+      const d = (e && e.detail) || {};
+      dispatchDialBoxKey(d.key, d.source || "test");
+    };
+    window.addEventListener(EXTERNAL_KEY_EVENT, handler);
+    return () => window.removeEventListener(EXTERNAL_KEY_EVENT, handler);
+  }, [dispatchDialBoxKey]);
+
+  // Development/testing: physical computer keyboard -> dispatcher. Only when the handset is
+  // off-hook, the toggle is enabled, and the user is not typing in a field / dialog.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!devKeyboard || !offHook || isTypingContext()) return;
+      const k = keyboardEventToDialKey(e);
+      if (!k) return;
+      e.preventDefault();
+      dispatchDialBoxKey(k, "computer-keyboard");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [devKeyboard, offHook, dispatchDialBoxKey]);
+
+  // Keep dev-keyboard toggle in sync with the Settings (DTMF Test Lab) control.
+  useEffect(() => {
+    const h = () => setDevKeyboard(getDevKeyboardEnabled());
+    window.addEventListener(SETTINGS_CHANGED_EVENT, h);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, h);
+  }, []);
+
   // Route a spoken phrase by mode: content in text modes, a whispered question in
   // Fortune, or a dialed number/command everywhere else (hands-free operation).
   const handleHoldTalk = useCallback((text) => {
@@ -1923,7 +1982,7 @@ export default function PhoneSimulator() {
     if (m === "fortune_persona") {
       const words = text.trim().split(/\s+/);
       const key = parseVoiceCommand(text);
-      if (key && words.length <= 2) onKey(key);
+      if (key && words.length <= 2) dispatchDialBoxKey(key, "voice");
       else setQuestion(text);
       return;
     }
@@ -1933,17 +1992,17 @@ export default function PhoneSimulator() {
       if (/\b(explain|hint|help|clue)\b/.test(t)) { triviaHint(); return; }
       if (/\b(skip|pass|next)\b/.test(t)) { triviaSkip(); return; }
       const key = parseVoiceCommand(text);
-      if (key) onKey(key);
+      if (key) dispatchDialBoxKey(key, "voice");
       return;
     }
     if (/\b(good\s?bye|hang up)\b/i.test(text)) {
-      onKey("#");
-      setTimeout(() => onKey("#"), 130);
+      dispatchDialBoxKey("#", "voice");
+      setTimeout(() => dispatchDialBoxKey("#", "voice"), 130);
       return;
     }
     const key = parseVoiceCommand(text);
-    if (key) onKey(key);
-  }, [submitCurrent, onKey, replayLast, triviaHint, triviaSkip]);
+    if (key) dispatchDialBoxKey(key, "voice");
+  }, [submitCurrent, dispatchDialBoxKey, replayLast, triviaHint, triviaSkip]);
   holdTalkRef.current = handleHoldTalk;
 
 
@@ -2116,8 +2175,16 @@ export default function PhoneSimulator() {
           </form>
         )}
 
-        {/* Keypad */}
-        <Keypad onPress={onKey} disabled={!offHook || mode === "busy"} />
+        {/* Keypad — routed through the shared DialBox input dispatcher */}
+        <Keypad onPress={(k) => dispatchDialBoxKey(k, "screen")} disabled={!offHook || mode === "busy"} />
+        {devKeyboard && offHook && (
+          <p
+            data-testid="dev-keyboard-hint"
+            className="mt-2 text-center font-mono text-[10px] uppercase tracking-[0.3em] text-neutral-600"
+          >
+            keyboard: 0–9 &nbsp;*&nbsp; #
+          </p>
+        )}
 
         {/* Global voice input — tap-to-talk or hold-to-talk (hands-free); mode is switchable */}
         {speechSupported && (

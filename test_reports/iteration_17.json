@@ -1,0 +1,36 @@
+{
+  "summary": "Frontend-only testing for DialBox shared dispatcher (Phase 1) + Cell2Jack/DTMF Test Lab (Phase 2). Core dispatcher, on-screen keypad regression, DTMF Test Lab dialog, simulated 12-tone Web Audio detection, DTMF->DialBox dispatch bridge, mic permission flow (granted), and start/stop cleanup all PASS. One real bug: dev keyboard controls default to OFF (not ON) in the served build because isDevBuild()'s `typeof process !== 'undefined'` guard is always false in the browser, so the dev-keyboard-hint is not visible on lift and physical 0-9 keys do not navigate until the user manually enables the DTMF Lab toggle.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "PhoneSimulator / lib/dialboxKeys.js",
+        "issue": "Dev keyboard controls default OFF instead of ON in the delivered build. Requirement says default ON in development. Root cause: isDevBuild() in /app/frontend/src/lib/dialboxKeys.js does `typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development'`. In the browser bundle `typeof process` is 'undefined' (CRA does not polyfill the whole `process` object; it only inlines `process.env.NODE_ENV` via DefinePlugin). The guard short-circuits, isDevBuild()=false, getDevKeyboardEnabled() returns false when localStorage is empty. Consequences observed: (a) data-testid='dev-keyboard-hint' is never rendered off-hook on a fresh browser; (b) physical keyboard 0-9 does NOT navigate DialBox until user opens DTMF Lab and toggles 'Enable Development Keyboard Controls'. After manually toggling ON, the hint appears with correct text 'keyboard: 0–9  *  #' and keyboard '1' correctly dispatches (LINE MONITOR shows '> dialed 1', mode -> CONNECTING). Suggested fix: drop the `typeof process` guard and rely on `process.env.NODE_ENV === 'development'` which CRA replaces at build time, e.g. `export const isDevBuild = () => process.env.NODE_ENV !== 'production';`",
+        "selector": "[data-testid=dev-keyboard-hint]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "DTMF Lab dialog", "issues": ["React accessibility warning in console: 'Missing Description or aria-describedby for DialogContent'. Add a <DialogDescription/> or aria-describedby to the DTMF Lab DialogContent in /app/frontend/src/App.js for a11y."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_17.json"],
+  "action_items": [
+    "Fix isDevBuild()/getDevKeyboardEnabled() so dev keyboard controls actually default ON in dev builds (drop the `typeof process` guard; use `process.env.NODE_ENV !== 'production'`).",
+    "Add DialogDescription to DTMF Lab Dialog to satisfy Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "/app/frontend/src/lib/dialboxKeys.js:isDevBuild() — the `typeof process !== 'undefined'` short-circuit makes it always false in the browser bundle, defeating the 'default ON in development' contract. Rely on the DefinePlugin-inlined `process.env.NODE_ENV` directly.",
+    "PhoneSimulator.jsx is ~2290 lines — exceeds 700-line guideline; consider splitting oracle flows (Ruby, Cyndi, Zelda, Nyx, Count, Sphinx) into focused modules for maintainability.",
+    "DTMF Test Lab DialogContent is missing DialogDescription/aria-describedby (Radix warning)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "~92%"},
+  "test_credentials": "none required",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Verified via headless Chromium: on-screen keypad dial 1/3 still navigates (Phase 1 shared dispatcher wiring intact via Keypad onPress -> dispatchDialBoxKey(k,'screen')). DTMF Lab opens with all listed testids present (dtmf-test-lab, dtmf-limitations w/ Cell2Jack wording, dtmf-sensitivity, dtmf-accept-toggle, dev-keyboard-toggle, dtmf-device-select, dtmf-last-key, dtmf-tested-count, dtmf-simulate-all-btn, dtmf-start-btn). NOTE: dtmf-level-meter reports is_visible=false because its width is 0 at rest — element exists in DOM (works as intended). 'Run simulated test' reached 12/12 in <15s via oscillators + analyser (no hardware). Individual dtmf-sim-key-5 updated dtmf-last-key='5' and set dtmf-key-5[data-detected='true']. DTMF -> dispatch bridge verified: with dtmf-accept-toggle on + handset off-hook, dtmf-sim-key-1 emitted 'dialbox-external-key' event and PhoneSimulator navigated to Fortune Caller. Start listening -> permission-state 'granted' (Playwright grants mic by default), Stop returns to Start cleanly, closing the dialog after Start/Stop does not throw. The ONLY failure is the default-ON dev-keyboard bug documented above; after manual toggle, keyboard 0-9/* /# dispatch works and dev-keyboard-hint renders with the correct label.",
+  "rca of the issue": "isDevBuild() gates on `typeof process !== 'undefined'`. Webpack/CRA replaces the sub-expression `process.env.NODE_ENV` at build time with a string literal, but it does NOT polyfill the `process` global itself. So at runtime, `typeof process` === 'undefined' in the browser, isDevBuild() returns false, and dev-keyboard defaults OFF (localStorage empty -> falls through to isDevBuild()). Reproduction: fresh incognito -> load app -> lift handset -> dev-keyboard-hint not rendered; press '1' on physical keyboard -> nothing happens. Mitigation: change to `export const isDevBuild = () => process.env.NODE_ENV !== 'production';` (works with CRA's DefinePlugin inlining, no runtime process object needed)."
+}
