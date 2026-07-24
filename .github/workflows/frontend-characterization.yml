@@ -1,0 +1,64 @@
+name: Frontend characterization tests
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-characterization.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-characterization-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: PhoneSimulator characterization suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable Yarn 1.22.22
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          yarn --version
+
+      - name: Install frontend dependencies
+        run: yarn --cwd frontend install --non-interactive
+
+      - name: Run targeted frontend tests
+        env:
+          CI: true
+        shell: bash
+        run: |
+          set -o pipefail
+          yarn --cwd frontend test \
+            --watchAll=false \
+            --runInBand \
+            src/components/PhoneSimulator.test.jsx \
+            src/lib/dialboxKeys.test.js \
+            src/lib/dtmf.test.js \
+            2>&1 | tee frontend/test-output.txt
+
+      - name: Upload complete Jest output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-characterization-test-output
+          path: frontend/test-output.txt
+          if-no-files-found: error
+          retention-days: 7
