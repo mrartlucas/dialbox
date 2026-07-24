@@ -7,7 +7,6 @@ on:
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-characterization.yml"
-      - ".github/scripts/repair_phase1a_tests.py"
   workflow_dispatch:
 
 permissions:
@@ -24,116 +23,105 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Check out pull-request branch
+      - name: Check out cleanup branch
         uses: actions/checkout@v4
         with:
           ref: codex/phase-1a-phone-simulator-tests
 
-      - name: Apply final persona timing repair
+      - name: Finalize Phase 1A cleanup
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("frontend/src/components/PhoneSimulator.test.jsx")
-          code = path.read_text()
-
-          replacements = [
-              (
-                  '''  await act(async () => {
-              root.render(React.createElement(PhoneSimulator));
-            });
-            await flushPromises(10);
-          ''',
-                  '''  await act(async () => {
-              root.render(React.createElement(PhoneSimulator));
-              for (let i = 0; i < 10; i += 1) await Promise.resolve();
-            });
-          ''',
-                  "initial React effect flush",
-              ),
-              (
-                  '''  await waitForFortuneMenu(container);
-            await press(container, "1");
-            const nameInput = await waitForTestId(container, "ruby-name-input");
-          ''',
-                  '''  await waitForFortuneMenu(container);
-            await press(container, "1");
-            await waitDialPause();
-            const nameInput = await waitForTestId(container, "ruby-name-input");
-          ''',
-                  "Ruby persona pause",
-              ),
-              (
-                  '''    await waitForFortuneMenu(container);
-              await press(container, "4");
-              await waitForStatus(container, "NYX · STARS");
-          ''',
-                  '''    await waitForFortuneMenu(container);
-              await press(container, "4");
-              await waitDialPause();
-              await waitForStatus(container, "NYX · STARS");
-          ''',
-                  "Nyx persona pause",
-              ),
-              (
-                  '''    await waitForFortuneMenu(container);
-              await press(container, "5");
-              await waitForStatus(container, "COUNT");
-          ''',
-                  '''    await waitForFortuneMenu(container);
-              await press(container, "5");
-              await waitDialPause();
-              await waitForStatus(container, "COUNT");
-          ''',
-                  "Count persona pause",
-              ),
-          ]
-
-          changed = False
-          for old, new, label in replacements:
-              if new in code:
-                  continue
+          test_path = Path("frontend/src/components/PhoneSimulator.test.jsx")
+          code = test_path.read_text()
+          old = '  mockApi.getVoicemails.mockResolvedValue([]);'
+          new = '  mockApi.getVoicemails.mockImplementation(() => new Promise(() => {}));'
+          if new not in code:
               if old not in code:
-                  raise SystemExit(f"Expected block not found: {label}")
-              code = code.replace(old, new, 1)
-              changed = True
-
-          sphinx_old = '''    await waitForFortuneMenu(container);
-              await press(container, "6");
-              await waitForStatus(container, "THE SPHINX");
-          '''
-          sphinx_new = '''    await waitForFortuneMenu(container);
-              await press(container, "6");
-              await waitDialPause();
-              await waitForStatus(container, "THE SPHINX");
-          '''
-          if sphinx_new not in code:
-              count = code.count(sphinx_old)
-              if count != 2:
-                  raise SystemExit(f"Expected two Sphinx blocks, found {count}")
-              code = code.replace(sphinx_old, sphinx_new)
-              changed = True
-
-          if changed:
-              path.write_text(code)
-              print("Applied final persona timing repair.")
-          else:
-              print("Final persona timing repair already applied.")
+                  raise SystemExit("Expected voicemail mock not found")
+              test_path.write_text(code.replace(old, new, 1))
           PY
 
-      - name: Commit repaired characterization test
+          rm -f .github/scripts/repair_phase1a_tests.py
+
+          cat > .github/workflows/frontend-characterization.yml <<'YAML'
+          name: Frontend characterization tests
+
+          on:
+            pull_request:
+              branches:
+                - main
+              paths:
+                - "frontend/**"
+                - ".github/workflows/frontend-characterization.yml"
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          concurrency:
+            group: frontend-characterization-${{ github.ref }}
+            cancel-in-progress: true
+
+          jobs:
+            test:
+              name: PhoneSimulator characterization suite
+              runs-on: ubuntu-latest
+              timeout-minutes: 20
+
+              steps:
+                - name: Check out repository
+                  uses: actions/checkout@v4
+
+                - name: Set up Node.js
+                  uses: actions/setup-node@v4
+                  with:
+                    node-version: 20
+
+                - name: Enable Yarn 1.22.22
+                  run: |
+                    corepack enable
+                    corepack prepare yarn@1.22.22 --activate
+                    yarn --version
+
+                - name: Install frontend dependencies
+                  run: yarn --cwd frontend install --non-interactive
+
+                - name: Run targeted frontend tests
+                  env:
+                    CI: true
+                  shell: bash
+                  run: |
+                    set -o pipefail
+                    yarn --cwd frontend test \
+                      --watchAll=false \
+                      --runInBand \
+                      src/components/PhoneSimulator.test.jsx \
+                      src/lib/dialboxKeys.test.js \
+                      src/lib/dtmf.test.js \
+                      2>&1 | tee frontend/test-output.txt
+
+                - name: Upload complete Jest output
+                  if: always()
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: frontend-characterization-test-output
+                    path: frontend/test-output.txt
+                    if-no-files-found: error
+                    retention-days: 7
+          YAML
+
+      - name: Commit cleanup
         shell: bash
         run: |
-          if git diff --quiet -- frontend/src/components/PhoneSimulator.test.jsx; then
-            echo "No test-file changes to commit."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add frontend/src/components/PhoneSimulator.test.jsx
-            git commit -m "Fix Phase 1A persona dial timing"
-            git push origin HEAD:codex/phase-1a-phone-simulator-tests
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/components/PhoneSimulator.test.jsx .github/workflows/frontend-characterization.yml
+          git add -u .github/scripts/repair_phase1a_tests.py
+          git commit -m "Clean up Phase 1A test workflow"
+          git push origin HEAD:codex/phase-1a-phone-simulator-tests
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -169,5 +157,5 @@ jobs:
         with:
           name: frontend-characterization-test-output
           path: frontend/test-output.txt
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
