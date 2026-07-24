@@ -259,7 +259,7 @@ beforeEach(() => {
   mockApi.getMenu.mockResolvedValue(menu);
   mockApi.tts.mockResolvedValue({ audio_base64: "abc" });
   mockApi.getPersonas.mockResolvedValue(personas);
-  mockApi.getVoicemails.mockResolvedValue([]);
+  mockApi.getVoicemails.mockImplementation(() => new Promise(() => {}));
   mockApi.schedulesDue.mockResolvedValue([]);
   mockApi.dial.mockResolvedValue({ type: "program", name: "Fortune Caller", has_personas: true, personas });
   mockApi.fortune.mockResolvedValue({ persona_name: "Oracle", text: "Current fortune", voice: "nova", sign_off: "Goodbye." });
