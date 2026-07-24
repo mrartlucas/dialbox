@@ -88,6 +88,26 @@ def _dial_directory_assistance(page: Page) -> None:
     console.get_by_text(branch_text, exact=False).wait_for(timeout=15_000)
 
 
+def _end_mindline_call_and_return_to_network(page: Page) -> None:
+    _dial_mindline(page)
+    console = page.get_by_test_id("crt-console")
+
+    _keypad_button(page, "#").click()
+    _keypad_button(page, "#").click()
+    exit_prompt = "Are you sure you want to end this call? Press 1 to continue, press 2 to end."
+    console.get_by_text(exit_prompt, exact=False).wait_for(timeout=15_000)
+
+    _keypad_button(page, "2").click()
+    console.get_by_text("Call ended.", exact=True).wait_for(timeout=15_000)
+    ended_options = "1 try again · 2 explore this Line · 3 the DialBox Network · 4 end session."
+    console.get_by_text(ended_options, exact=True).wait_for(timeout=15_000)
+
+    _keypad_button(page, "3").click()
+    console.get_by_text("Welcome to DialBox.", exact=False).wait_for(timeout=15_000)
+    console.get_by_text("3  MindLine", exact=False).wait_for(timeout=15_000)
+    expect(page.get_by_test_id("mindline-input")).to_have_count(0)
+
+
 def test_real_browser_reaches_real_backend_mindline() -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -123,6 +143,26 @@ def test_real_browser_secret_code_branch_and_universal_exit_restore() -> None:
             page.screenshot(path=str(ARTIFACT_DIR / "secret-exit-smoke-passed.png"), full_page=True)
         except Exception:
             page.screenshot(path=str(ARTIFACT_DIR / "secret-exit-smoke-failed.png"), full_page=True)
+            raise
+        finally:
+            browser.close()
+
+
+def test_real_browser_ends_call_and_returns_to_dialbox_network() -> None:
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.route("**/api/tts", _stub_tts)
+
+        try:
+            page.goto(APP_URL, wait_until="networkidle", timeout=30_000)
+            _assert_live_menu(page)
+            _end_mindline_call_and_return_to_network(page)
+            page.screenshot(path=str(ARTIFACT_DIR / "call-ended-network-passed.png"), full_page=True)
+        except Exception:
+            page.screenshot(path=str(ARTIFACT_DIR / "call-ended-network-failed.png"), full_page=True)
             raise
         finally:
             browser.close()
