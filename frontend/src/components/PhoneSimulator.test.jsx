@@ -124,8 +124,8 @@ async function renderPhone() {
   const root = createRoot(container);
   await act(async () => {
     root.render(React.createElement(PhoneSimulator));
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
   });
-  await flushPromises(10);
   const entry = {
     container,
     root,
@@ -226,6 +226,7 @@ async function enterFortuneResult(container) {
   await waitDialPause();
   await waitForFortuneMenu(container);
   await press(container, "1");
+  await waitDialPause();
   const nameInput = await waitForTestId(container, "ruby-name-input");
   changeInput(nameInput, "Ava");
   submitForm(nameInput);
@@ -466,6 +467,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await waitDialPause();
     await waitForFortuneMenu(container);
     await press(container, "4");
+    await waitDialPause();
     await waitForStatus(container, "NYX · STARS");
     await press(container, "1");
     await press(container, "#");
@@ -479,6 +481,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await waitDialPause();
     await waitForFortuneMenu(container);
     await press(container, "5");
+    await waitDialPause();
     await waitForStatus(container, "COUNT");
     await press(container, "1");
     await waitForText(container, /Which corner of your fate/);
@@ -501,6 +504,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await waitDialPause();
     await waitForFortuneMenu(container);
     await press(container, "6");
+    await waitDialPause();
     await waitForStatus(container, "THE SPHINX");
     await press(container, "2");
     await waitForStatus(container, "CONNECTING");
@@ -516,6 +520,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await waitDialPause();
     await waitForFortuneMenu(container);
     await press(container, "6");
+    await waitDialPause();
     await waitForStatus(container, "THE SPHINX");
     await press(container, "2");
     await waitForStatus(container, "CONNECTING");
