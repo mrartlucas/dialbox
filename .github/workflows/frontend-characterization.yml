@@ -8,6 +8,7 @@ on:
       - "frontend/**"
       - ".github/workflows/frontend-characterization.yml"
       - ".github/scripts/apply_phase1b_round2.py"
+      - ".github/scripts/repair_phase1b_round2_tests.py"
   workflow_dispatch:
 
 permissions:
@@ -31,6 +32,9 @@ jobs:
 
       - name: Apply Phase 1B round two
         run: python .github/scripts/apply_phase1b_round2.py
+
+      - name: Repair timer regression test
+        run: python .github/scripts/repair_phase1b_round2_tests.py
 
       - name: Commit implementation
         shell: bash
