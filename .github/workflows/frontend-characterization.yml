@@ -29,14 +29,98 @@ jobs:
         with:
           ref: codex/phase-1a-phone-simulator-tests
 
-      - name: Apply final Phase 1A test synchronization repair
+      - name: Apply final persona timing repair
         shell: bash
         run: |
-          if grep -q "async function waitForFortuneMenu" frontend/src/components/PhoneSimulator.test.jsx; then
-            echo "Final characterization-test repair already applied."
-          else
-            python .github/scripts/repair_phase1a_tests.py
-          fi
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("frontend/src/components/PhoneSimulator.test.jsx")
+          code = path.read_text()
+
+          replacements = [
+              (
+                  '''  await act(async () => {
+              root.render(React.createElement(PhoneSimulator));
+            });
+            await flushPromises(10);
+          ''',
+                  '''  await act(async () => {
+              root.render(React.createElement(PhoneSimulator));
+              for (let i = 0; i < 10; i += 1) await Promise.resolve();
+            });
+          ''',
+                  "initial React effect flush",
+              ),
+              (
+                  '''  await waitForFortuneMenu(container);
+            await press(container, "1");
+            const nameInput = await waitForTestId(container, "ruby-name-input");
+          ''',
+                  '''  await waitForFortuneMenu(container);
+            await press(container, "1");
+            await waitDialPause();
+            const nameInput = await waitForTestId(container, "ruby-name-input");
+          ''',
+                  "Ruby persona pause",
+              ),
+              (
+                  '''    await waitForFortuneMenu(container);
+              await press(container, "4");
+              await waitForStatus(container, "NYX · STARS");
+          ''',
+                  '''    await waitForFortuneMenu(container);
+              await press(container, "4");
+              await waitDialPause();
+              await waitForStatus(container, "NYX · STARS");
+          ''',
+                  "Nyx persona pause",
+              ),
+              (
+                  '''    await waitForFortuneMenu(container);
+              await press(container, "5");
+              await waitForStatus(container, "COUNT");
+          ''',
+                  '''    await waitForFortuneMenu(container);
+              await press(container, "5");
+              await waitDialPause();
+              await waitForStatus(container, "COUNT");
+          ''',
+                  "Count persona pause",
+              ),
+          ]
+
+          changed = False
+          for old, new, label in replacements:
+              if new in code:
+                  continue
+              if old not in code:
+                  raise SystemExit(f"Expected block not found: {label}")
+              code = code.replace(old, new, 1)
+              changed = True
+
+          sphinx_old = '''    await waitForFortuneMenu(container);
+              await press(container, "6");
+              await waitForStatus(container, "THE SPHINX");
+          '''
+          sphinx_new = '''    await waitForFortuneMenu(container);
+              await press(container, "6");
+              await waitDialPause();
+              await waitForStatus(container, "THE SPHINX");
+          '''
+          if sphinx_new not in code:
+              count = code.count(sphinx_old)
+              if count != 2:
+                  raise SystemExit(f"Expected two Sphinx blocks, found {count}")
+              code = code.replace(sphinx_old, sphinx_new)
+              changed = True
+
+          if changed:
+              path.write_text(code)
+              print("Applied final persona timing repair.")
+          else:
+              print("Final persona timing repair already applied.")
+          PY
 
       - name: Commit repaired characterization test
         shell: bash
@@ -47,7 +131,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add frontend/src/components/PhoneSimulator.test.jsx
-            git commit -m "Finish Phase 1A test synchronization repair"
+            git commit -m "Fix Phase 1A persona dial timing"
             git push origin HEAD:codex/phase-1a-phone-simulator-tests
           fi
 
