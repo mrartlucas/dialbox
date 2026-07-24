@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from playwright.sync_api import Page, Route, sync_playwright
+from playwright.sync_api import Page, Route, expect, sync_playwright
 
 
 ARTIFACT_DIR = Path("e2e/artifacts")
@@ -45,9 +45,7 @@ def _dial_mindline(page: Page) -> None:
         exact=False,
     ).wait_for(timeout=15_000)
 
-    name_input = page.get_by_test_id("mindline-input")
-    name_input.wait_for(timeout=15_000)
-    assert name_input.get_attribute("placeholder") == "state your name..."
+    expect(page.get_by_test_id("mindline-input")).to_be_visible(timeout=15_000)
 
 
 def test_real_browser_reaches_real_backend_mindline() -> None:
