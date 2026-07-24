@@ -7,7 +7,6 @@ on:
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-characterization.yml"
-      - ".github/scripts/apply_phase1b_round2.py"
       - ".github/scripts/repair_phase1b_round2_tests.py"
   workflow_dispatch:
 
@@ -30,22 +29,19 @@ jobs:
         with:
           ref: codex/phase-1b-hangup-cleanup
 
-      - name: Apply Phase 1B round two
-        run: python .github/scripts/apply_phase1b_round2.py
-
       - name: Repair timer regression test
         run: python .github/scripts/repair_phase1b_round2_tests.py
 
-      - name: Commit implementation
+      - name: Commit test repair
         shell: bash
         run: |
-          if git diff --quiet -- frontend/src/components/PhoneSimulator.jsx frontend/src/components/PhoneSimulator.test.jsx; then
-            echo "Phase 1B round two already applied."
+          if git diff --quiet -- frontend/src/components/PhoneSimulator.test.jsx; then
+            echo "Phase 1B round-two timer test repair already applied."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add frontend/src/components/PhoneSimulator.jsx frontend/src/components/PhoneSimulator.test.jsx
-            git commit -m "Clean up microphone and timers after hang-up"
+            git add frontend/src/components/PhoneSimulator.test.jsx
+            git commit -m "Stabilize Phase 1B timer regression coverage"
             git push origin HEAD:codex/phase-1b-hangup-cleanup
           fi
 
