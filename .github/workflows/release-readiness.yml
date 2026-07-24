@@ -1,0 +1,116 @@
+name: Release readiness
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "README.md"
+      - ".gitignore"
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/release-readiness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-production-build:
+    name: Frontend production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable Yarn 1.22.22
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          yarn --version
+
+      - name: Install frontend dependencies
+        run: yarn --cwd frontend install --non-interactive
+
+      - name: Build production frontend
+        env:
+          CI: false
+          REACT_APP_BACKEND_URL: https://api.dialbox.invalid
+        run: yarn --cwd frontend build
+
+      - name: Verify production output
+        run: |
+          test -f frontend/build/index.html
+          test -d frontend/build/static
+
+  backend-startup:
+    name: FastAPI startup with MongoDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Start FastAPI backend
+        env:
+          MONGO_URL: mongodb://127.0.0.1:27017
+          DB_NAME: dialbox_release_readiness
+          CORS_ORIGINS: http://127.0.0.1:3000
+          EMERGENT_LLM_KEY: release-readiness-placeholder
+        run: |
+          cd backend
+          python -m uvicorn server:app --host 127.0.0.1 --port 8000 > ../backend-release.log 2>&1 &
+          echo $! > ../backend-release.pid
+
+      - name: Verify backend health and seed data
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:8000/api/ > /tmp/dialbox-health.json; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8000/api/ | grep '"status":"ok"'
+          curl --fail --silent http://127.0.0.1:8000/api/menu | grep '"greeting"'
+
+      - name: Upload backend startup log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-release-startup-log
+          path: backend-release.log
+          if-no-files-found: warn
+          retention-days: 7
