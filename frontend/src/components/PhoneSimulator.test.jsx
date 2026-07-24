@@ -486,6 +486,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await waitForStatus(container, "NYX · STARS");
     await press(container, "1");
     await press(container, "#");
+    await waitPoundPause();
     await waitForText(container, /Nyx reading/);
   });
 
@@ -505,6 +506,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await press(container, "1");
     await press(container, "2");
     await press(container, "#");
+    await waitPoundPause();
     await waitForCondition(
       () => mockApi.countReading.mock.calls.some(([category, number]) => category === "Love" && number === "12"),
       "Count reading API call"
@@ -543,6 +545,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
     changeInput(riddleInput, "egg");
     await press(container, "#");
+    await waitPoundPause();
     expectText(container, />\s*egg/);
     expect(status(container)).toBe("CONNECTING");
   });
@@ -754,7 +757,7 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     await waitForFortuneMenu(container);
     await press(container, "4");
     await waitDialPause();
-    await waitForStatus(container, "NYX OF THE NINE STARS");
+    await waitForStatus(container, "NYX · STARS");
     await press(container, "1");
     await press(container, "#");
     await press(container, "#");
@@ -770,9 +773,11 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     await waitForFortuneMenu(container);
     await press(container, "5");
     await waitDialPause();
-    await waitForStatus(container, "COUNT CLAIRVOYANT");
+    await waitForStatus(container, "COUNT");
     await press(container, "1");
+    await waitForText(container, /Which corner of your fate/);
     await press(container, "1");
+    await waitForTestId(container, "count-number-input");
     await press(container, "7");
     await press(container, "#");
     await press(container, "#");
@@ -790,6 +795,10 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     await waitDialPause();
     await waitForStatus(container, "THE SPHINX");
     await press(container, "2");
+    await waitForStatus(container, "CONNECTING");
+    await completeCurrentAudio();
+    const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
+    changeInput(riddleInput, "egg");
     await press(container, "#");
     await press(container, "#");
     expect(status(container)).toBe("END CALL?");
@@ -804,7 +813,7 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     await waitForFortuneMenu(container);
     await press(container, "4");
     await waitDialPause();
-    await waitForStatus(container, "NYX OF THE NINE STARS");
+    await waitForStatus(container, "NYX · STARS");
     await press(container, "1");
     await press(container, "#");
     expect(mockApi.nyxReading).not.toHaveBeenCalled();
