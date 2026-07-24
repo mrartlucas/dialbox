@@ -1795,30 +1795,27 @@ export default function PhoneSimulator() {
     }
 
     // ## (double pound) = universal exit; opens the End Call? confirmation.
+    // Every single-pound submit waits through the same short grace period so a
+    // second pound can cancel it before Nyx, Count, Sphinx, or result routing fires.
     if (d === "#") {
-      // In Nyx's constellation builder, # submits the constellation for a reading.
-      if (modeRef.current === "nyx_build") {
-        if (nyxStars.current.length >= 1) generateNyxReading(nyxStars.current.slice());
-        else push("system", "Place at least one star (press 1-9), then press #.");
-        return;
-      }
-      // In the Count's number / mathemagic entry, # submits the typed-or-keyed number.
-      if (["count_number", "count_magic", "count_magic_37", "count_magic_kaprekar"].includes(modeRef.current)) {
-        submitCurrent();
-        return;
-      }
-      // In the Sphinx's riddle challenge, # submits the typed answer.
-      if (modeRef.current === "sphinx_riddle") { submitCurrent(); return; }
       if (hashPending.current) {
         clearTimeout(hashPending.current);
         hashPending.current = null;
         if (inExperience) triggerExitConfirm();
         return;
       }
+      const modeAtHash = m;
       hashPending.current = setTimeout(() => {
         hashPending.current = null;
-        if (generation !== sessionGeneration.current) return;
-        if (modeRef.current === "result") chooseAnotherOracle(); // single # = another oracle
+        if (generation !== sessionGeneration.current || modeRef.current !== modeAtHash) return;
+        if (modeAtHash === "nyx_build") {
+          if (nyxStars.current.length >= 1) generateNyxReading(nyxStars.current.slice());
+          else push("system", "Place at least one star (press 1-9), then press #.");
+        } else if (["count_number", "count_magic", "count_magic_37", "count_magic_kaprekar", "sphinx_riddle"].includes(modeAtHash)) {
+          submitCurrent();
+        } else if (modeAtHash === "result") {
+          chooseAnotherOracle();
+        }
       }, 650);
       return;
     }

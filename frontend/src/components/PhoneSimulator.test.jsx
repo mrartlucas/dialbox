@@ -486,6 +486,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await waitForStatus(container, "NYX · STARS");
     await press(container, "1");
     await press(container, "#");
+    await waitPoundPause();
     await waitForText(container, /Nyx reading/);
   });
 
@@ -505,6 +506,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await press(container, "1");
     await press(container, "2");
     await press(container, "#");
+    await waitPoundPause();
     await waitForCondition(
       () => mockApi.countReading.mock.calls.some(([category, number]) => category === "Love" && number === "12"),
       "Count reading API call"
@@ -543,6 +545,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
     changeInput(riddleInput, "egg");
     await press(container, "#");
+    await waitPoundPause();
     expectText(container, />\s*egg/);
     expect(status(container)).toBe("CONNECTING");
   });
@@ -746,5 +749,75 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     expect(mockApi.rubyReading).not.toHaveBeenCalled();
     expect(mockApi.tts.mock.calls.length).toBeGreaterThan(ttsCallsBeforeExit + 1);
   });
-  test.todo("universal ## works in every submit mode");
+  test("universal ## cancels Nyx constellation submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX · STARS");
+    await press(container, "1");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.nyxReading).not.toHaveBeenCalled();
+  });
+
+  test("universal ## cancels Count number submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "5");
+    await waitDialPause();
+    await waitForStatus(container, "COUNT");
+    await press(container, "1");
+    await waitForText(container, /Which corner of your fate/);
+    await press(container, "1");
+    await waitForTestId(container, "count-number-input");
+    await press(container, "7");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.countReading).not.toHaveBeenCalled();
+  });
+
+  test("universal ## cancels Sphinx riddle submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "6");
+    await waitDialPause();
+    await waitForStatus(container, "THE SPHINX");
+    await press(container, "2");
+    await waitForStatus(container, "CONNECTING");
+    await completeCurrentAudio();
+    const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
+    changeInput(riddleInput, "egg");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.sphinxGates).not.toHaveBeenCalled();
+  });
+
+  test("a lone pound still submits Nyx after the double-pound grace period", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX · STARS");
+    await press(container, "1");
+    await press(container, "#");
+    expect(mockApi.nyxReading).not.toHaveBeenCalled();
+    await waitPoundPause();
+    expect(mockApi.nyxReading).toHaveBeenCalledWith([1]);
+  });
 });
