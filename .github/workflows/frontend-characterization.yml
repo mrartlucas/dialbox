@@ -43,10 +43,22 @@ jobs:
       - name: Run targeted frontend tests
         env:
           CI: true
-        run: >-
-          yarn --cwd frontend test
-          --watchAll=false
-          --runInBand
-          src/components/PhoneSimulator.test.jsx
-          src/lib/dialboxKeys.test.js
-          src/lib/dtmf.test.js
+        shell: bash
+        run: |
+          set -o pipefail
+          yarn --cwd frontend test \
+            --watchAll=false \
+            --runInBand \
+            src/components/PhoneSimulator.test.jsx \
+            src/lib/dialboxKeys.test.js \
+            src/lib/dtmf.test.js \
+            2>&1 | tee frontend/test-output.txt
+
+      - name: Upload complete Jest output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-characterization-test-output
+          path: frontend/test-output.txt
+          if-no-files-found: error
+          retention-days: 7
