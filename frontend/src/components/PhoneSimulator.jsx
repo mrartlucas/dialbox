@@ -248,6 +248,7 @@ export default function PhoneSimulator() {
   const ringTimer = useRef(null);
   const digitTimer = useRef(null);
   const starTimer = useRef(null);
+  const goodbyeTimer = useRef(null);
   const bufferRef = useRef("");
   const modeRef = useRef("onhook");
   const sessionGeneration = useRef(0);
@@ -284,6 +285,13 @@ export default function PhoneSimulator() {
 
   const push = useCallback((role, text) => {
     setLines((prev) => [...prev, { role, text }]);
+  }, []);
+
+  const clearSessionTimers = useCallback(() => {
+    [ringTimer, digitTimer, starTimer, hashPending, goodbyeTimer].forEach((timerRef) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+    });
   }, []);
 
   const stopAudio = () => {
@@ -369,14 +377,19 @@ export default function PhoneSimulator() {
 
   const resetLine = useCallback(() => {
     sessionGeneration.current += 1;
-    clearTimeout(digitTimer.current);
+    clearSessionTimers();
+    stopListening();
     stopAudio();
+    incomingRef.current = false;
+    incomingSched.current = null;
+    setIncoming(false);
     setModeSafe("onhook");
     setBuf("");
+    setMindlineInput("");
     setProgram(null);
     setQuestion("");
     setLines([]);
-  }, [setBuf, setModeSafe]);
+  }, [clearSessionTimers, setBuf, setModeSafe, stopListening]);
 
   const openMenu = useCallback(async () => {
     const generation = sessionGeneration.current;
@@ -1393,11 +1406,14 @@ export default function PhoneSimulator() {
 
   const micStart = useCallback(() => {
     if (listening) return;
+    const generation = sessionGeneration.current;
     startListening(
       (text) => {
+        if (generation !== sessionGeneration.current || modeRef.current === "onhook") return;
         if (holdTalkRef.current) holdTalkRef.current(text);
       },
       (err) => {
+        if (generation !== sessionGeneration.current || modeRef.current === "onhook") return;
         if (err === "not-allowed" || err === "service-not-allowed" || err === "audio-capture") {
           setVoiceBlocked(true);
         }
@@ -1478,11 +1494,14 @@ export default function PhoneSimulator() {
   // ---------------- Scheduled incoming calls ----------------
   const triggerScheduledRing = useCallback((sched) => {
     if (offHook || incomingRef.current) return;
+    const generation = sessionGeneration.current;
     incomingSched.current = sched;
     incomingRef.current = true;
     setIncoming(true);
     setMessageLight(false);
     ringTimer.current = setTimeout(async () => {
+      ringTimer.current = null;
+      if (generation !== sessionGeneration.current) return;
       setIncoming(false);
       incomingRef.current = false;
       try {
@@ -1668,6 +1687,7 @@ export default function PhoneSimulator() {
 
   const onKey = useCallback((d) => {
     if (!offHook || modeRef.current === "busy") return;
+    const generation = sessionGeneration.current;
     playTone(d);
     clearTimeout(digitTimer.current);
     const m = modeRef.current;
@@ -1704,6 +1724,8 @@ export default function PhoneSimulator() {
       const modeAtStar = m;
       setBuf("*");
       starTimer.current = setTimeout(() => {
+        starTimer.current = null;
+        if (generation !== sessionGeneration.current) return;
         // No digits followed a lone ✱ -> fall back to the classic meaning
         if (bufferRef.current === "*") {
           setBuf("");
@@ -1720,6 +1742,8 @@ export default function PhoneSimulator() {
       const nb = bufferRef.current.length < 14 ? bufferRef.current + d : bufferRef.current;
       setBuf(nb);
       digitTimer.current = setTimeout(() => {
+        digitTimer.current = null;
+        if (generation !== sessionGeneration.current) return;
         const code = nb.slice(1);
         setBuf("");
         if (code) processDial(code);
@@ -1750,6 +1774,7 @@ export default function PhoneSimulator() {
       }
       hashPending.current = setTimeout(() => {
         hashPending.current = null;
+        if (generation !== sessionGeneration.current) return;
         if (modeRef.current === "result") chooseAnotherOracle(); // single # = another oracle
       }, 650);
       return;
@@ -1935,6 +1960,8 @@ export default function PhoneSimulator() {
     const nb = bufferRef.current.length < 14 ? bufferRef.current + d : bufferRef.current;
     setBuf(nb);
     digitTimer.current = setTimeout(() => {
+      digitTimer.current = null;
+      if (generation !== sessionGeneration.current) return;
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
@@ -2014,8 +2041,14 @@ export default function PhoneSimulator() {
       return;
     }
     if (/\b(good\s?bye|hang up)\b/i.test(text)) {
+      const generation = sessionGeneration.current;
       dispatchDialBoxKey("#", "voice");
-      setTimeout(() => dispatchDialBoxKey("#", "voice"), 130);
+      clearTimeout(goodbyeTimer.current);
+      goodbyeTimer.current = setTimeout(() => {
+        goodbyeTimer.current = null;
+        if (generation !== sessionGeneration.current) return;
+        dispatchDialBoxKey("#", "voice");
+      }, 130);
       return;
     }
     const key = parseVoiceCommand(text);
@@ -2048,9 +2081,14 @@ export default function PhoneSimulator() {
   }, [refreshMessageLight, triggerScheduledRing]);
 
   useEffect(() => () => {
-    clearTimeout(ringTimer.current);
-    clearTimeout(digitTimer.current);
-  }, []);
+    sessionGeneration.current += 1;
+    clearSessionTimers();
+    stopListening();
+    if (audioRef.current) {
+      try { audioRef.current.pause(); } catch (e) {}
+      audioRef.current.onended = null;
+    }
+  }, [clearSessionTimers, stopListening]);
 
   return (
     <div className="relative">
