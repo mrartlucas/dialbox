@@ -637,9 +637,52 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     expect(status(container)).toBe("ON HOOK");
     expect(text(container)).not.toMatch(/Late Line|arrived after hang-up/);
   });
-  test.todo("microphone stops after hang-up");
-  test.todo("every timer is cleared or invalidated");
-  test.todo("stale callbacks from an old call cannot affect a new call");
+  test("microphone stops after hang-up", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    click(container, "hold-to-talk-btn");
+    expect(mockSpeechControls.start).toHaveBeenCalledTimes(1);
+    click(container, "hangup-btn");
+    expect(mockSpeechControls.stop).toHaveBeenCalledTimes(1);
+    expect(status(container)).toBe("ON HOOK");
+  });
+
+  test("every handset timer is cleared or invalidated on hang-up", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    const baselineTimers = jest.getTimerCount();
+
+    await press(container, "1");
+    expect(jest.getTimerCount()).toBeGreaterThan(baselineTimers);
+    click(container, "hangup-btn");
+    expect(jest.getTimerCount()).toBe(baselineTimers);
+    await waitDialPause();
+    expect(mockApi.dial).not.toHaveBeenCalled();
+
+    await lift(container);
+    await press(container, "*");
+    expect(jest.getTimerCount()).toBeGreaterThan(baselineTimers);
+    click(container, "hangup-btn");
+    expect(jest.getTimerCount()).toBe(baselineTimers);
+    await waitStarHold();
+    expect(mockApi.getVoicemails).not.toHaveBeenCalled();
+  });
+
+  test("stale microphone callbacks from an old call cannot affect a new call", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    click(container, "hold-to-talk-btn");
+    const oldCallback = mockSpeechControls.start.mock.calls[0][0];
+    expect(typeof oldCallback).toBe("function");
+
+    click(container, "hangup-btn");
+    await lift(container);
+    act(() => { oldCallback("1"); });
+    await waitDialPause();
+
+    expect(mockApi.dial).not.toHaveBeenCalled();
+    expect(status(container)).toBe("DIAL TONE");
+  });
   test.todo("Continue restores the interrupted state instead of restarting");
   test.todo("universal ## works in every submit mode");
 });
