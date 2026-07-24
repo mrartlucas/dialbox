@@ -76,8 +76,129 @@ PHONE.write_text(phone)
 
 test = TEST.read_text()
 
+old_nyx_single = '''  test("single-pound in Nyx constellation entry submits the constellation", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX · STARS");
+    await press(container, "1");
+    await press(container, "#");
+    await waitForText(container, /Nyx reading/);
+  });'''
+
+new_nyx_single = '''  test("single-pound in Nyx constellation entry submits the constellation", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX · STARS");
+    await press(container, "1");
+    await press(container, "#");
+    await waitPoundPause();
+    await waitForText(container, /Nyx reading/);
+  });'''
+
+test = replace_once(test, old_nyx_single, new_nyx_single, "Nyx lone-pound timing")
+
+old_count_single = '''  test("single-pound in Count number entry submits the keyed number", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "5");
+    await waitDialPause();
+    await waitForStatus(container, "COUNT");
+    await press(container, "1");
+    await waitForText(container, /Which corner of your fate/);
+    await press(container, "1");
+    await waitForTestId(container, "count-number-input");
+    await press(container, "1");
+    await press(container, "2");
+    await press(container, "#");
+    await waitForCondition(
+      () => mockApi.countReading.mock.calls.some(([category, number]) => category === "Love" && number === "12"),
+      "Count reading API call"
+    );
+    await waitForText(container, /Count reading/);
+  });'''
+
+new_count_single = '''  test("single-pound in Count number entry submits the keyed number", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "5");
+    await waitDialPause();
+    await waitForStatus(container, "COUNT");
+    await press(container, "1");
+    await waitForText(container, /Which corner of your fate/);
+    await press(container, "1");
+    await waitForTestId(container, "count-number-input");
+    await press(container, "1");
+    await press(container, "2");
+    await press(container, "#");
+    await waitPoundPause();
+    await waitForCondition(
+      () => mockApi.countReading.mock.calls.some(([category, number]) => category === "Love" && number === "12"),
+      "Count reading API call"
+    );
+    await waitForText(container, /Count reading/);
+  });'''
+
+test = replace_once(test, old_count_single, new_count_single, "Count lone-pound timing")
+
+old_sphinx_single = '''  test("single-pound in Sphinx riddle entry submits the typed answer", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "6");
+    await waitDialPause();
+    await waitForStatus(container, "THE SPHINX");
+    await press(container, "2");
+    await waitForStatus(container, "CONNECTING");
+    await completeCurrentAudio();
+    const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
+    changeInput(riddleInput, "egg");
+    await press(container, "#");
+    expectText(container, />\\s*egg/);
+    expect(status(container)).toBe("CONNECTING");
+  });'''
+
+new_sphinx_single = '''  test("single-pound in Sphinx riddle entry submits the typed answer", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "6");
+    await waitDialPause();
+    await waitForStatus(container, "THE SPHINX");
+    await press(container, "2");
+    await waitForStatus(container, "CONNECTING");
+    await completeCurrentAudio();
+    const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
+    changeInput(riddleInput, "egg");
+    await press(container, "#");
+    await waitPoundPause();
+    expectText(container, />\\s*egg/);
+    expect(status(container)).toBe("CONNECTING");
+  });'''
+
+test = replace_once(test, old_sphinx_single, new_sphinx_single, "Sphinx lone-pound timing")
+
 todo = '  test.todo("universal ## works in every submit mode");'
-replacement = '''  test("universal ## cancels Nyx constellation submission", async () => {
+previous_replacement = '''  test("universal ## cancels Nyx constellation submission", async () => {
     const { container } = await renderPhone();
     await lift(container);
     await press(container, "1");
@@ -143,6 +264,85 @@ replacement = '''  test("universal ## cancels Nyx constellation submission", asy
     expect(mockApi.nyxReading).toHaveBeenCalledWith([1]);
   });'''
 
-test = replace_once(test, todo, replacement, "activate universal double-pound regressions")
+replacement = '''  test("universal ## cancels Nyx constellation submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX · STARS");
+    await press(container, "1");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.nyxReading).not.toHaveBeenCalled();
+  });
+
+  test("universal ## cancels Count number submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "5");
+    await waitDialPause();
+    await waitForStatus(container, "COUNT");
+    await press(container, "1");
+    await waitForText(container, /Which corner of your fate/);
+    await press(container, "1");
+    await waitForTestId(container, "count-number-input");
+    await press(container, "7");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.countReading).not.toHaveBeenCalled();
+  });
+
+  test("universal ## cancels Sphinx riddle submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "6");
+    await waitDialPause();
+    await waitForStatus(container, "THE SPHINX");
+    await press(container, "2");
+    await waitForStatus(container, "CONNECTING");
+    await completeCurrentAudio();
+    const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
+    changeInput(riddleInput, "egg");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.sphinxGates).not.toHaveBeenCalled();
+  });
+
+  test("a lone pound still submits Nyx after the double-pound grace period", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX · STARS");
+    await press(container, "1");
+    await press(container, "#");
+    expect(mockApi.nyxReading).not.toHaveBeenCalled();
+    await waitPoundPause();
+    expect(mockApi.nyxReading).toHaveBeenCalledWith([1]);
+  });'''
+
+if replacement not in test:
+    if previous_replacement in test:
+        test = test.replace(previous_replacement, replacement, 1)
+    elif todo in test:
+        test = test.replace(todo, replacement, 1)
+    else:
+        raise SystemExit("Expected block not found: activate universal double-pound regressions")
+
 TEST.write_text(test)
 print("Applied Phase 1B round-four universal double-pound handling.")
