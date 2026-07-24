@@ -84,18 +84,49 @@ function mockBrowserAudio() {
   window.Audio = jest.fn(() => new MockAudio());
 }
 
-async function completeCurrentAudio() {
-  const audio = mockAudioInstances[mockAudioInstances.length - 1];
-  if (audio && typeof audio.onended === "function") {
-    await act(async () => { audio.onended(); });
-  }
+function currentAudio() {
+  return mockAudioInstances[mockAudioInstances.length - 1] || null;
 }
 
-function renderPhone() {
+async function waitForCondition(check, label, attempts = 20) {
+  let lastError;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const value = check();
+      if (value) return value;
+    } catch (error) {
+      lastError = error;
+    }
+    await flushPromises();
+  }
+  if (lastError) throw lastError;
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
+async function completeCurrentAudio() {
+  const audio = await waitForCondition(
+    () => {
+      const candidate = currentAudio();
+      return candidate && typeof candidate.onended === "function" ? candidate : null;
+    },
+    "the current audio callback"
+  );
+  await act(async () => {
+    audio.onended();
+    await Promise.resolve();
+  });
+  await flushPromises();
+}
+
+async function renderPhone() {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  act(() => { root.render(React.createElement(PhoneSimulator)); });
+  await act(async () => {
+    root.render(React.createElement(PhoneSimulator));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
   const entry = {
     container,
     root,
@@ -114,26 +145,62 @@ function addWindowListener(type, listener) {
 }
 
 function byTestId(container, id) { return container.querySelector(`[data-testid="${id}"]`); }
-function click(container, id) { act(() => { byTestId(container, id).dispatchEvent(new MouseEvent("click", { bubbles: true })); }); }
+function click(container, id) {
+  const element = byTestId(container, id);
+  if (!element) throw new Error(`Missing element: ${id}`);
+  act(() => { element.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+}
 function changeInput(input, value) {
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    "value"
-  ).set;
+  if (!input) throw new Error("Missing input element");
+  const prototype = Object.getPrototypeOf(input);
+  const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  if (!setter) throw new Error("Input value setter is unavailable");
   act(() => {
     setter.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
-function submitForm(input) { act(() => { input.closest("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); }); }
+function submitForm(input) {
+  if (!input) throw new Error("Missing form input");
+  const form = input.closest("form");
+  if (!form) throw new Error("Input is not inside a form");
+  act(() => {
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+}
 function text(container) { return container.textContent; }
 function expectText(container, pattern) { expect(text(container)).toMatch(pattern); }
 function status(container) { return byTestId(container, "crt-console").querySelector(".crt-glow").textContent; }
 function keyId(key) { return key === "*" ? "star" : key === "#" ? "hash" : key; }
-async function flushPromises() { await act(async () => { await Promise.resolve(); }); }
-async function advance(ms) { await act(async () => { jest.advanceTimersByTime(ms); await Promise.resolve(); }); }
-async function press(container, key) { click(container, `keypad-button-${keyId(key)}`); await flushPromises(); }
-async function lift(container) { click(container, "lift-handset-btn"); await flushPromises(); expectText(container, /Welcome to DialBox/); }
+async function flushPromises(cycles = 5) {
+  await act(async () => {
+    for (let i = 0; i < cycles; i += 1) await Promise.resolve();
+  });
+}
+async function advance(ms) {
+  await act(async () => {
+    jest.advanceTimersByTime(ms);
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+}
+async function waitForText(container, pattern) {
+  return waitForCondition(() => pattern.test(text(container)), `text ${pattern}`);
+}
+async function waitForStatus(container, expected) {
+  return waitForCondition(() => status(container) === expected, `status ${expected}`);
+}
+async function waitForTestId(container, id) {
+  return waitForCondition(() => byTestId(container, id), `element ${id}`);
+}
+async function press(container, key) {
+  click(container, `keypad-button-${keyId(key)}`);
+  await flushPromises();
+}
+async function lift(container) {
+  click(container, "lift-handset-btn");
+  await waitForText(container, /Welcome to DialBox/);
+}
 async function waitDialPause() { await advance(1300); }
 async function waitPoundPause() { await advance(650); }
 async function waitStarHold() { await advance(850); }
@@ -150,24 +217,26 @@ async function enterFortuneResult(container) {
   });
   await press(container, "1");
   await waitDialPause();
-  expectText(container, /CHOOSE YOUR ORACLE/);
+  await waitForText(container, /CHOOSE YOUR ORACLE/);
   await press(container, "1");
-  changeInput(byTestId(container, "ruby-name-input"), "Ava");
-  submitForm(byTestId(container, "ruby-name-input"));
-  changeInput(byTestId(container, "ruby-situation-input"), "future");
-  submitForm(byTestId(container, "ruby-situation-input"));
+  const nameInput = await waitForTestId(container, "ruby-name-input");
+  changeInput(nameInput, "Ava");
+  submitForm(nameInput);
+  const situationInput = await waitForTestId(container, "ruby-situation-input");
+  changeInput(situationInput, "future");
+  submitForm(situationInput);
+  await waitForText(container, /Press 1 \(predict\) or 2 \(reflect\)/);
   await press(container, "2");
-  await flushPromises();
-  expectText(container, /Ruby says yes/);
+  await waitForText(container, /Ruby says yes/);
 }
 
 async function enterCallEnded(container) {
   await enterFortuneResult(container);
   await press(container, "#");
   await press(container, "#");
-  expect(status(container)).toBe("END CALL?");
+  await waitForStatus(container, "END CALL?");
   await press(container, "2");
-  expect(status(container)).toBe("CALL ENDED");
+  await waitForStatus(container, "CALL ENDED");
 }
 
 beforeEach(() => {
@@ -213,13 +282,13 @@ afterAll(() => {
 
 describe("PhoneSimulator Phase 1A characterization", () => {
   test("lift handset opens the DialBox menu", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     expect(status(container)).toBe("DIAL TONE");
   });
 
   test("main-menu keypad input dispatches through the shared key event and dials after the inter-digit timer", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     const seen = jest.fn();
     addWindowListener(KEY_DISPATCHED_EVENT, seen);
@@ -230,7 +299,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("computer keyboard input is ignored on-hook, accepted off-hook, and disabled by settings", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     const seen = jest.fn();
     addWindowListener(KEY_DISPATCHED_EVENT, seen);
     act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "1", code: "Digit1", bubbles: true })); });
@@ -245,7 +314,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("computer keyboard input is ignored while an input or textarea has focus", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     const seen = jest.fn();
     addWindowListener(KEY_DISPATCHED_EVENT, seen);
@@ -263,7 +332,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("external input with source dtmf reaches the shared dispatcher and dials after the inter-digit timer", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     const seen = jest.fn();
     addWindowListener(KEY_DISPATCHED_EVENT, seen);
@@ -274,7 +343,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("external input defaults to source test when source is omitted", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     const seen = jest.fn();
     addWindowListener(KEY_DISPATCHED_EVENT, seen);
@@ -283,7 +352,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("physical hang-up returns to on-hook and clears visible call state", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     click(container, "hangup-btn");
     expect(status(container)).toBe("ON HOOK");
@@ -291,7 +360,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("double-pound enters exit confirmation in result mode", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterFortuneResult(container);
     await press(container, "#");
@@ -300,7 +369,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("exit confirmation option 1 currently restarts the Fortune Line", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterFortuneResult(container);
     await press(container, "#");
@@ -312,7 +381,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("exit confirmation option 2 enters call-ended routing", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterFortuneResult(container);
     await press(container, "#");
@@ -322,7 +391,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("call-ended option 1 currently restarts the current Line", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterCallEnded(container);
     await press(container, "1");
@@ -331,7 +400,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("call-ended option 2 currently explores the current Line", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterCallEnded(container);
     await press(container, "2");
@@ -340,7 +409,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("call-ended option 3 returns to the DialBox Network", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterCallEnded(container);
     await press(container, "3");
@@ -350,7 +419,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("call-ended option 4 returns to physical on-hook termination", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterCallEnded(container);
     await press(container, "4");
@@ -358,7 +427,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("star replay appends a replay message in result mode", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterFortuneResult(container);
     await press(container, "*");
@@ -367,7 +436,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("star at dial tone opens voicemail", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await press(container, "*");
     await waitStarHold();
@@ -375,7 +444,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("single-pound in result mode opens another-oracle selection after the pound delay", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterFortuneResult(container);
     await press(container, "#");
@@ -384,60 +453,75 @@ describe("PhoneSimulator Phase 1A characterization", () => {
   });
 
   test("single-pound in Nyx constellation entry submits the constellation", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await press(container, "1");
     await waitDialPause();
+    await waitForText(container, /CHOOSE YOUR ORACLE/);
     await press(container, "4");
+    await waitForStatus(container, "NYX · STARS");
     await press(container, "1");
     await press(container, "#");
-    await flushPromises();
-    expectText(container, /Nyx reading/);
+    await waitForText(container, /Nyx reading/);
   });
 
   test("single-pound in Count number entry submits the keyed number", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await press(container, "1");
     await waitDialPause();
+    await waitForText(container, /CHOOSE YOUR ORACLE/);
     await press(container, "5");
+    await waitForStatus(container, "COUNT");
     await press(container, "1");
+    await waitForText(container, /Which corner of your fate/);
+    await press(container, "1");
+    await waitForTestId(container, "count-number-input");
     await press(container, "1");
     await press(container, "2");
     await press(container, "#");
-    await flushPromises();
-    expect(mockApi.countReading).toHaveBeenCalledWith("Love", "12");
-    expectText(container, /Count reading/);
+    await waitForCondition(
+      () => mockApi.countReading.mock.calls.some(([category, number]) => category === "Love" && number === "12"),
+      "Count reading API call"
+    );
+    await waitForText(container, /Count reading/);
   });
 
   test("Sphinx riddle mode is entered only after completing the required audio callback", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await press(container, "1");
     await waitDialPause();
+    await waitForText(container, /CHOOSE YOUR ORACLE/);
     await press(container, "6");
+    await waitForStatus(container, "THE SPHINX");
     await press(container, "2");
+    await waitForStatus(container, "CONNECTING");
     expect(byTestId(container, "sphinx-riddle-input")).toBeNull();
     await completeCurrentAudio();
-    expect(byTestId(container, "sphinx-riddle-input")).not.toBeNull();
+    await waitForTestId(container, "sphinx-riddle-input");
   });
 
   test("single-pound in Sphinx riddle entry submits the typed answer", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await press(container, "1");
     await waitDialPause();
+    await waitForText(container, /CHOOSE YOUR ORACLE/);
     await press(container, "6");
+    await waitForStatus(container, "THE SPHINX");
     await press(container, "2");
+    await waitForStatus(container, "CONNECTING");
     await completeCurrentAudio();
-    changeInput(byTestId(container, "sphinx-riddle-input"), "egg");
+    const riddleInput = await waitForTestId(container, "sphinx-riddle-input");
+    changeInput(riddleInput, "egg");
     await press(container, "#");
     expectText(container, />\s*egg/);
     expect(status(container)).toBe("CONNECTING");
   });
 
   test("spoken goodbye invokes the speech callback and enters exit confirmation", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     await lift(container);
     await enterFortuneResult(container);
     click(container, "hold-to-talk-btn");
@@ -451,30 +535,34 @@ describe("PhoneSimulator Phase 1A characterization", () => {
 
   test("menu-load API failure displays the current menu recovery message", async () => {
     mockApi.getMenu.mockRejectedValueOnce(new Error("down"));
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     click(container, "lift-handset-btn");
-    await flushPromises();
-    expectText(container, /could not reach the DialBox Network/);
+    await waitForText(container, /could not reach the DialBox Network/);
   });
 
   test("scheduled ring answer opens the scheduled Fortune Line", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     click(container, "simulate-call-btn");
     expect(status(container)).toBe("RINGING");
     click(container, "lift-handset-btn");
-    await flushPromises();
-    expectText(container, /is calling YOU/);
-    expect(status(container)).toBe("SELECT VOICE");
+    await waitForText(container, /is calling YOU/);
+    await waitForStatus(container, "SELECT VOICE");
   });
 
   test("scheduled missed call creates voicemail and turns on the visible message light", async () => {
-    const { container } = renderPhone();
+    const { container } = await renderPhone();
     click(container, "simulate-call-btn");
     expect(status(container)).toBe("RINGING");
     await waitRingTimeout();
-    expect(mockApi.createVoicemail).toHaveBeenCalledWith("fortune");
+    await waitForCondition(
+      () => mockApi.createVoicemail.mock.calls.some(([slug]) => slug === "fortune"),
+      "scheduled voicemail creation"
+    );
+    await waitForCondition(
+      () => byTestId(container, "message-light").querySelector("span").className.includes("bg-red-500"),
+      "visible message light"
+    );
     expect(byTestId(container, "message-light").textContent).toContain("Msg");
-    expect(byTestId(container, "message-light").querySelector("span").className).toMatch(/bg-red-500/);
   });
 });
 
