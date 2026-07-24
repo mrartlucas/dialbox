@@ -8,6 +8,7 @@ import { useSpeechInput } from "../lib/useSpeechInput";
 import { useDialBoxSessionLifecycle } from "../lib/useDialBoxSessionLifecycle";
 import { useDialBoxAudioSpeech } from "../lib/useDialBoxAudioSpeech";
 import { useDialBoxKeypadControls } from "../lib/useDialBoxKeypadControls";
+import { useDialBoxLineRouting } from "../lib/useDialBoxLineRouting";
 import {
   isValidKey,
   isValidSource,
@@ -283,6 +284,7 @@ export default function PhoneSimulator() {
     setLines,
   });
   const currentEgg = useRef(null);
+  const generateFortuneRef = useRef(null);
   const kkJoke = useRef(null);
   const kkTold = useRef([]);
   const mlSession = useRef({ id: null, phase: null });
@@ -1392,24 +1394,40 @@ export default function PhoneSimulator() {
   }, [listening, voiceMode, micStop]);
 
   // ---------------- Universal exit system (## / Goodbye) ----------------
-  const enterLine = useCallback((slug) => {
-    if (slug === "fortune") {
-      setModeSafe("fortune_persona");
-      loadFortunePersonas();
-    } else if (slug === "therapy") {
-      enterMindline();
-    } else if (slug === "magic8") {
-      enterMagic8();
-    } else if (slug === "knockknock") {
-      enterKnockKnock();
-    } else if (slug === "adventure") {
-      enterAdventure();
-    } else if (slug === "trivia") {
-      enterTrivia();
-    } else {
-      backToMenu();
-    }
-  }, [loadFortunePersonas, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, backToMenu, setModeSafe]);
+  const {
+    enterLine,
+    routeOracleSelection,
+    routeDialResponse,
+    routeScheduledInteraction,
+  } = useDialBoxLineRouting({
+    currentLine,
+    currentEgg,
+    personas,
+    setModeSafe,
+    setPersonas,
+    setProgram,
+    push,
+    speak,
+    deliver,
+    backToMenu,
+    loadFortunePersonas,
+    enterMindline,
+    enterMagic8,
+    enterKnockKnock,
+    enterAdventure,
+    enterTrivia,
+    startRuby,
+    startCyndi,
+    startZelda,
+    startNyx,
+    startCount,
+    startSphinx,
+    generateFortuneRef,
+    relabelPersonas: relabelForToday,
+    buildOraclePrompt: oraclePrompt,
+    operatorVoice: OPERATOR_VOICE,
+    oracleVoice: ORACLE_VOICE,
+  });
 
   const triggerExitConfirm = useCallback(() => {
     interruptedSession.current = {
@@ -1518,25 +1536,15 @@ export default function PhoneSimulator() {
     }
   }, [question, push, deliver, setModeSafe]);
 
+  generateFortuneRef.current = generateFortune;
+
   const processDial = useCallback(async (digits) => {
     if (!digits) return;
     const generation = sessionGeneration.current;
     const curMode = modeRef.current;
 
     if (curMode === "fortune_persona") {
-      const idx = parseInt(digits, 10) - 1;
-      if (personas[idx]) {
-        push("caller", `dialed ${digits} — ${personas[idx].name}`);
-        if (personas[idx].slug === "ruby") startRuby();
-        else if (personas[idx].slug === "cyndi") startCyndi();
-        else if (personas[idx].slug === "zelda") startZelda();
-        else if (personas[idx].slug === "nyx") startNyx();
-        else if (personas[idx].slug === "count") startCount();
-        else if (personas[idx].slug === "sphinx") startSphinx();
-        else generateFortune(personas[idx].slug);
-      } else {
-        push("error", "// no such voice on this line");
-      }
+      routeOracleSelection(digits);
       return;
     }
 
@@ -1545,60 +1553,7 @@ export default function PhoneSimulator() {
     try {
       const res = await api.dial(digits);
       if (generation !== sessionGeneration.current) return;
-      if (res.type === "program" && res.interaction === "mindline") {
-        push("program", `Connecting to ${res.name}...`);
-        enterMindline();
-      } else if (res.type === "program" && res.interaction === "magic8") {
-        push("program", `Connecting to ${res.name}...`);
-        enterMagic8();
-      } else if (res.type === "program" && res.interaction === "knockknock") {
-        push("program", `Connecting to ${res.name}...`);
-        enterKnockKnock();
-      } else if (res.type === "program" && res.interaction === "adventure") {
-        push("program", `Connecting to ${res.name}...`);
-        enterAdventure();
-      } else if (res.type === "program" && res.interaction === "trivia") {
-        push("program", `Connecting to ${res.name}...`);
-        enterTrivia();
-      } else if (res.type === "program" && res.has_personas) {
-        currentLine.current = "fortune";
-        setModeSafe("fortune_persona");
-        const labeled = relabelForToday(res.personas || []);
-        setPersonas(labeled);
-        setProgram(res);
-        push("program", `Connecting to ${res.name}...`);
-        push("system", "── CHOOSE YOUR ORACLE ──");
-        labeled.forEach((p, i) => push("line", `  ${i + 1}  ${p.name} — ${p.blurb}`));
-        push("system", "Dial 1-9 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
-        speak(oraclePrompt(labeled), { voice: ORACLE_VOICE });
-      } else if (res.type === "secret") {
-        setModeSafe("secret");
-        currentEgg.current = res;
-        push("program", `\u260e ${res.title}`);
-        push("program", res.response_text);
-        if (res.clue) push("system", `\u203b clue: ${res.clue}`);
-        const hasBranches = res.branches && Object.keys(res.branches).length > 0;
-        push(
-          "system",
-          (hasBranches ? "Dial a listed option · " : "") +
-            "press \u2731 to hear it again · 0 for the main menu · or hang up."
-        );
-        const spoken = res.response_text + (res.clue ? ` ${res.clue}` : "");
-        const opts = hasBranches
-          ? "Dial one of the options you heard. To hear that again, press star. To return to the main menu, dial 0. Or hang up."
-          : undefined;
-        deliver(spoken, { voice: res.voice }, opts);
-      } else if (res.type === "voicemail" || res.type === "coming_soon") {
-        setModeSafe("message");
-        push("program", res.message);
-        push("system", "To hear that again, press \u2731. Dial 0 for the main menu, or hang up.");
-        deliver(res.message, { voice: OPERATOR_VOICE });
-      } else {
-        setModeSafe("message");
-        push("error", res.message || "// not in service");
-        push("system", "To hear that again, press \u2731. Dial 0 for the main menu, or hang up.");
-        deliver(res.message || "We're sorry. The number you have dialed is not in service.", { voice: OPERATOR_VOICE });
-      }
+      routeDialResponse(res);
     } catch (e) {
       if (generation !== sessionGeneration.current) return;
       setModeSafe("message");
@@ -1621,16 +1576,7 @@ export default function PhoneSimulator() {
       if (sched && sched.id) api.scheduleFired(sched.id).catch(() => {});
       const label = sched ? sched.program_name : "The Fortune Caller";
       push("program", `${label} is calling YOU. The line was scheduled to ring.`);
-      if (sched && sched.interaction === "mindline") {
-        enterMindline();
-      } else if (sched && sched.interaction === "knockknock") {
-        enterKnockKnock();
-      } else if (sched && sched.interaction === "magic8") {
-        enterMagic8();
-      } else {
-        setModeSafe("fortune_persona");
-        loadFortunePersonas();
-      }
+      routeScheduledInteraction(sched);
       return;
     }
     setModeSafe("dialtone");
