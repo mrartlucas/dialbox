@@ -23,7 +23,7 @@ export function useDialBoxLineRouting({
   startNyx,
   startCount,
   startSphinx,
-  generateFortune,
+  generateFortuneRef,
   relabelPersonas,
   buildOraclePrompt,
   operatorVoice,
@@ -72,9 +72,9 @@ export function useDialBoxLineRouting({
     else if (persona.slug === "nyx") startNyx();
     else if (persona.slug === "count") startCount();
     else if (persona.slug === "sphinx") startSphinx();
-    else generateFortune(persona.slug);
+    else if (generateFortuneRef.current) generateFortuneRef.current(persona.slug);
   }, [
-    generateFortune,
+    generateFortuneRef,
     personas,
     push,
     startCount,
