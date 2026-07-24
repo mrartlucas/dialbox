@@ -111,20 +111,22 @@ def _end_mindline_call_and_return_to_network(page: Page) -> None:
 def _answer_simulated_scheduled_call(page: Page) -> None:
     console = page.get_by_test_id("crt-console")
     simulate_button = page.get_by_test_id("simulate-call-btn")
+    answer_button = page.get_by_test_id("lift-handset-btn")
 
     expect(simulate_button).to_be_enabled()
     simulate_button.click()
 
-    expect(page.get_by_test_id("lift-handset-btn")).to_contain_text("Answer")
-    console.get_by_text("RINGING", exact=True).wait_for(timeout=15_000)
-    expect(simulate_button).to_be_disabled()
+    # The production ring window is nine seconds. Verify the ring state quickly,
+    # then answer before the timeout can convert the call into voicemail.
+    expect(answer_button).to_contain_text("Answer", timeout=3_000)
+    expect(console.get_by_text("RINGING", exact=True)).to_be_visible(timeout=3_000)
 
     with page.expect_response(
         lambda response: response.url.endswith("/api/personas")
         and response.request.method == "GET",
         timeout=15_000,
     ) as response_info:
-        page.get_by_test_id("lift-handset-btn").click()
+        answer_button.click()
 
     response = response_info.value
     assert response.ok, f"Persona route returned HTTP {response.status}"
