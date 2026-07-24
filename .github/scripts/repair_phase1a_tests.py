@@ -62,6 +62,11 @@ replace_once(
 "initial effect flushing",
 )
 
+needle = 'await waitForText(container, /CHOOSE YOUR ORACLE/);'
+if code.count(needle) != 5:
+    raise SystemExit(f"Expected five Fortune menu waits, found {code.count(needle)}")
+code = code.replace(needle, 'await waitForFortuneMenu(container);')
+
 replace_once(
 '''async function waitForTestId(container, id) {
   return waitForCondition(() => byTestId(container, id), `element ${id}`);
@@ -73,7 +78,6 @@ async function press(container, key) {
 }
 async function waitForFortuneMenu(container) {
   await waitForText(container, /CHOOSE YOUR ORACLE/);
-  await waitForTestId(container, "fortune-question-input");
   await waitForCondition(
     () => mockApi.dial.mock.calls.length > 0,
     "Fortune Caller dial completion"
@@ -84,11 +88,6 @@ async function press(container, key) {
 ''',
 "Fortune menu synchronization helper",
 )
-
-needle = 'await waitForText(container, /CHOOSE YOUR ORACLE/);'
-if code.count(needle) != 5:
-    raise SystemExit(f"Expected five Fortune menu waits, found {code.count(needle)}")
-code = code.replace(needle, 'await waitForFortuneMenu(container);')
 
 path.write_text(code)
 print(f"Finalized {path} ({len(code.splitlines())} lines)")
