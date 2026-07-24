@@ -5,6 +5,7 @@ import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
 import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect, playWin, playLose, resumeAudioCtx, SILENT_CLIP, isOutOfCredits } from "../lib/phoneApi";
 import { useSpeechInput } from "../lib/useSpeechInput";
+import { useDialBoxSessionLifecycle } from "../lib/useDialBoxSessionLifecycle";
 import {
   isValidKey,
   isValidSource,
@@ -244,22 +245,43 @@ export default function PhoneSimulator() {
   );
   const { supported: speechSupported, listening, start: startListening, stop: stopListening } = useSpeechInput();
 
-  const audioRef = useRef(null);
-  const ringTimer = useRef(null);
-  const digitTimer = useRef(null);
-  const starTimer = useRef(null);
-  const goodbyeTimer = useRef(null);
-  const bufferRef = useRef("");
-  const modeRef = useRef("onhook");
-  const sessionGeneration = useRef(0);
+  const {
+    audioRef,
+    ringTimer,
+    digitTimer,
+    starTimer,
+    goodbyeTimer,
+    bufferRef,
+    modeRef,
+    sessionGeneration,
+    activeSpeech,
+    interruptedSession,
+    currentLine,
+    hashPending,
+    incomingRef,
+    incomingSched,
+    clearSessionTimers,
+    stopAudio,
+    resetLine,
+  } = useDialBoxSessionLifecycle({
+    stopListening,
+    setPlaying,
+    setIncoming,
+    setModeSafe: (nextMode) => {
+      modeRef.current = nextMode;
+      setMode(nextMode);
+    },
+    setBuf: (nextBuffer) => {
+      bufferRef.current = nextBuffer;
+      setBuffer(nextBuffer);
+    },
+    setMindlineInput,
+    setProgram,
+    setQuestion,
+    setLines,
+  });
   const lastSpoken = useRef(null);
-  const activeSpeech = useRef(null);
-  const interruptedSession = useRef(null);
   const currentEgg = useRef(null);
-  const currentLine = useRef(null);
-  const hashPending = useRef(null);
-  const incomingRef = useRef(false);
-  const incomingSched = useRef(null);
   const kkJoke = useRef(null);
   const kkTold = useRef([]);
   const mlSession = useRef({ id: null, phase: null });
