@@ -4,7 +4,7 @@ PHONE = Path("frontend/src/components/PhoneSimulator.jsx")
 
 
 def replace_once(text, old, new, label):
-    if new in text:
+    if new and new in text:
         return text
     if old not in text:
         raise SystemExit(f"Expected block not found: {label}")
