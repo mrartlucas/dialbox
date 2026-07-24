@@ -23,11 +23,11 @@ replacement = '''  test("every handset timer is cleared or invalidated on hang-u
 
     // Lone-star timer cannot add another voicemail read after hang-up.
     await lift(container);
-    const voicemailCallsBeforeStar = mockApi.getVoicemails.mock.calls.length;
     await press(container, "*");
     click(container, "hangup-btn");
+    const voicemailCallsAfterHangup = mockApi.getVoicemails.mock.calls.length;
     await waitStarHold();
-    expect(mockApi.getVoicemails).toHaveBeenCalledTimes(voicemailCallsBeforeStar);
+    expect(mockApi.getVoicemails).toHaveBeenCalledTimes(voicemailCallsAfterHangup);
     expect(status(container)).toBe("ON HOOK");
 
     // Single-pound timer cannot reopen an oracle after hang-up.
