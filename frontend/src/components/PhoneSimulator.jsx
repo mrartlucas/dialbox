@@ -253,6 +253,8 @@ export default function PhoneSimulator() {
   const modeRef = useRef("onhook");
   const sessionGeneration = useRef(0);
   const lastSpoken = useRef(null);
+  const activeSpeech = useRef(null);
+  const interruptedSession = useRef(null);
   const currentEgg = useRef(null);
   const currentLine = useRef(null);
   const hashPending = useRef(null);
@@ -330,6 +332,8 @@ export default function PhoneSimulator() {
 
   const speak = useCallback(async (text, opts, onDone) => {
     const generation = sessionGeneration.current;
+    const speech = { text, opts, onDone };
+    activeSpeech.current = speech;
     try {
       setPlaying(true);
       const res = await api.tts(sayable(text), opts);
@@ -341,12 +345,14 @@ export default function PhoneSimulator() {
       p.src = `data:audio/mp3;base64,${res.audio_base64}`;
       p.onended = () => {
         if (generation !== sessionGeneration.current) return;
+        if (activeSpeech.current === speech) activeSpeech.current = null;
         setPlaying(false);
         if (onDone) onDone();
       };
       await p.play();
     } catch (e) {
       if (generation !== sessionGeneration.current) return;
+      if (activeSpeech.current === speech) activeSpeech.current = null;
       setPlaying(false);
       // Rapid successive speak() calls (barge-in) abort the previous play() — benign, ignore.
       const name = e && e.name;
@@ -377,6 +383,8 @@ export default function PhoneSimulator() {
 
   const resetLine = useCallback(() => {
     sessionGeneration.current += 1;
+    interruptedSession.current = null;
+    activeSpeech.current = null;
     clearSessionTimers();
     stopListening();
     stopAudio();
@@ -1472,17 +1480,52 @@ export default function PhoneSimulator() {
   }, [loadFortunePersonas, enterMindline, enterMagic8, enterKnockKnock, enterAdventure, enterTrivia, backToMenu, setModeSafe]);
 
   const triggerExitConfirm = useCallback(() => {
+    interruptedSession.current = {
+      mode: modeRef.current,
+      buffer: bufferRef.current,
+      lines,
+      program,
+      personas,
+      question,
+      mindlineInput: mindlineInputRef.current,
+      speech: activeSpeech.current,
+    };
     stopAudio();
+    activeSpeech.current = null;
     clearTimeout(digitTimer.current);
     setModeSafe("exit_confirm");
     push("system", "── END CALL? ──");
     push("program", "Are you sure you want to end this call? Press 1 to continue, press 2 to end.");
     speak("Are you sure you want to end this call? Press 1 to continue. Press 2 to end.",
       { voice: OPERATOR_VOICE });
-  }, [push, speak, setModeSafe]);
+  }, [lines, program, personas, question, push, speak, setModeSafe]);
+
+  const restoreInterruptedSession = useCallback(() => {
+    const snapshot = interruptedSession.current;
+    if (!snapshot) {
+      enterLine(currentLine.current);
+      return;
+    }
+    interruptedSession.current = null;
+    stopAudio();
+    activeSpeech.current = null;
+    setLines(snapshot.lines);
+    setProgram(snapshot.program);
+    setPersonas(snapshot.personas);
+    setQuestion(snapshot.question);
+    mindlineInputRef.current = snapshot.mindlineInput;
+    setMindlineInput(snapshot.mindlineInput);
+    setBuf(snapshot.buffer);
+    setModeSafe(snapshot.mode);
+    if (snapshot.speech) {
+      speak(snapshot.speech.text, snapshot.speech.opts, snapshot.speech.onDone);
+    }
+  }, [enterLine, setBuf, setModeSafe, speak]);
 
   const callEnded = useCallback(() => {
+    interruptedSession.current = null;
     stopAudio();
+    activeSpeech.current = null;
     setModeSafe("call_ended");
     push("program", "Call ended.");
     push("system", "1 try again · 2 explore this Line · 3 the DialBox Network · 4 end session.");
@@ -1782,7 +1825,7 @@ export default function PhoneSimulator() {
 
     // Exit confirmation flow
     if (m === "exit_confirm") {
-      if (d === "1") enterLine(currentLine.current);
+      if (d === "1") restoreInterruptedSession();
       else if (d === "2") callEnded();
       return;
     }
@@ -1965,7 +2008,7 @@ export default function PhoneSimulator() {
       setBuf("");
       processDial(nb);
     }, INTER_DIGIT_MS);
-  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, startCountNumber, startCountMagic, startCount, askCountNumber, startMagic1089, startMagic37, startMagicKaprekar, startThreeGates, startChallenge, recordGateChoice, submitCurrent, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, callEnded, resetLine, openMenu, setBuf]);
+  }, [offHook, processDial, backToMenu, replayLast, chooseAnotherOracle, playBranch, playVoicemails, askMagic8, enterMagic8, enterKnockKnock, advChoose, advStartStory, enterAdventure, enterAiTheme, generateRubyReading, askCyndiName, generateZeldaReading, generateNyxReading, startCountNumber, startCountMagic, startCount, askCountNumber, startMagic1089, startMagic37, startMagicKaprekar, startThreeGates, startChallenge, recordGateChoice, submitCurrent, triviaAnswer, enterTrivia, enterLine, triggerExitConfirm, restoreInterruptedSession, callEnded, resetLine, openMenu, setBuf]);
 
   // ---------------------------------------------------------------------------
   // Shared DialBox input dispatcher. EVERY key from EVERY source (on-screen keypad,

@@ -386,16 +386,21 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     expect(status(container)).toBe("END CALL?");
   });
 
-  test("exit confirmation option 1 currently restarts the Fortune Line", async () => {
+  test("exit confirmation option 1 restores the exact interrupted Fortune result", async () => {
     const { container } = await renderPhone();
     await lift(container);
     await enterFortuneResult(container);
+    const resultText = text(container);
+    const ttsCallsBeforeExit = mockApi.tts.mock.calls.length;
     await press(container, "#");
     await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
     await press(container, "1");
     await flushPromises();
-    expect(status(container)).toBe("SELECT VOICE");
-    expectText(container, /FORTUNE TELLER|CHOOSE YOUR ORACLE/);
+    expect(status(container)).toBe("IN CALL");
+    expect(text(container)).toBe(resultText);
+    expect(mockApi.tts.mock.calls.length).toBeGreaterThan(ttsCallsBeforeExit + 1);
+    expect(mockApi.rubyReading).toHaveBeenCalledTimes(1);
   });
 
   test("exit confirmation option 2 enters call-ended routing", async () => {
@@ -716,6 +721,30 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     expect(mockApi.dial).not.toHaveBeenCalled();
     expect(status(container)).toBe("DIAL TONE");
   });
-  test.todo("Continue restores the interrupted state instead of restarting");
+  test("Continue restores interrupted mode, input, progress, and audio without restarting", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "1");
+    await waitDialPause();
+
+    const nameInput = await waitForTestId(container, "ruby-name-input");
+    changeInput(nameInput, "Ava");
+    const ttsCallsBeforeExit = mockApi.tts.mock.calls.length;
+
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    await press(container, "1");
+    await flushPromises();
+
+    const restoredInput = await waitForTestId(container, "ruby-name-input");
+    expect(status(container)).toBe("MADAME RUBY");
+    expect(restoredInput.value).toBe("Ava");
+    expect(mockApi.rubyReading).not.toHaveBeenCalled();
+    expect(mockApi.tts.mock.calls.length).toBeGreaterThan(ttsCallsBeforeExit + 1);
+  });
   test.todo("universal ## works in every submit mode");
 });
