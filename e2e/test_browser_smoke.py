@@ -108,6 +108,40 @@ def _end_mindline_call_and_return_to_network(page: Page) -> None:
     expect(page.get_by_test_id("mindline-input")).to_have_count(0)
 
 
+def _answer_simulated_scheduled_call(page: Page) -> None:
+    console = page.get_by_test_id("crt-console")
+    simulate_button = page.get_by_test_id("simulate-call-btn")
+
+    expect(simulate_button).to_be_enabled()
+    simulate_button.click()
+
+    expect(page.get_by_test_id("lift-handset-btn")).to_contain_text("Answer")
+    console.get_by_text("RINGING", exact=True).wait_for(timeout=15_000)
+    expect(simulate_button).to_be_disabled()
+
+    with page.expect_response(
+        lambda response: response.url.endswith("/api/personas")
+        and response.request.method == "GET",
+        timeout=15_000,
+    ) as response_info:
+        page.get_by_test_id("lift-handset-btn").click()
+
+    response = response_info.value
+    assert response.ok, f"Persona route returned HTTP {response.status}"
+
+    console.get_by_text(
+        "The Fortune Caller is calling YOU. The line was scheduled to ring.",
+        exact=True,
+    ).wait_for(timeout=15_000)
+    console.get_by_text("FORTUNE TELLER: CHOOSE YOUR ORACLE", exact=False).wait_for(timeout=15_000)
+    console.get_by_text("Dial 1-9 to choose", exact=False).wait_for(timeout=15_000)
+    console.get_by_text("SELECT VOICE", exact=True).wait_for(timeout=15_000)
+
+    expect(page.get_by_test_id("fortune-question-input")).to_be_visible(timeout=15_000)
+    expect(page.get_by_test_id("hangup-btn")).to_be_visible(timeout=15_000)
+    expect(page.get_by_test_id("lift-handset-btn")).to_have_count(0)
+
+
 def test_real_browser_reaches_real_backend_mindline() -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -163,6 +197,25 @@ def test_real_browser_ends_call_and_returns_to_dialbox_network() -> None:
             page.screenshot(path=str(ARTIFACT_DIR / "call-ended-network-passed.png"), full_page=True)
         except Exception:
             page.screenshot(path=str(ARTIFACT_DIR / "call-ended-network-failed.png"), full_page=True)
+            raise
+        finally:
+            browser.close()
+
+
+def test_real_browser_answers_simulated_scheduled_incoming_call() -> None:
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.route("**/api/tts", _stub_tts)
+
+        try:
+            page.goto(APP_URL, wait_until="networkidle", timeout=30_000)
+            _answer_simulated_scheduled_call(page)
+            page.screenshot(path=str(ARTIFACT_DIR / "scheduled-call-answered-passed.png"), full_page=True)
+        except Exception:
+            page.screenshot(path=str(ARTIFACT_DIR / "scheduled-call-answered-failed.png"), full_page=True)
             raise
         finally:
             browser.close()
