@@ -3,6 +3,7 @@ import { useCallback } from "react";
 export function useDialBoxLineRouting({
   currentLine,
   currentEgg,
+  personas,
   setModeSafe,
   setPersonas,
   setProgram,
@@ -16,6 +17,13 @@ export function useDialBoxLineRouting({
   enterKnockKnock,
   enterAdventure,
   enterTrivia,
+  startRuby,
+  startCyndi,
+  startZelda,
+  startNyx,
+  startCount,
+  startSphinx,
+  generateFortune,
   relabelPersonas,
   buildOraclePrompt,
   operatorVoice,
@@ -47,6 +55,34 @@ export function useDialBoxLineRouting({
     enterTrivia,
     loadFortunePersonas,
     setModeSafe,
+  ]);
+
+  const routeOracleSelection = useCallback((digits) => {
+    const index = parseInt(digits, 10) - 1;
+    const persona = personas[index];
+    if (!persona) {
+      push("error", "// no such voice on this line");
+      return;
+    }
+
+    push("caller", `dialed ${digits} — ${persona.name}`);
+    if (persona.slug === "ruby") startRuby();
+    else if (persona.slug === "cyndi") startCyndi();
+    else if (persona.slug === "zelda") startZelda();
+    else if (persona.slug === "nyx") startNyx();
+    else if (persona.slug === "count") startCount();
+    else if (persona.slug === "sphinx") startSphinx();
+    else generateFortune(persona.slug);
+  }, [
+    generateFortune,
+    personas,
+    push,
+    startCount,
+    startCyndi,
+    startNyx,
+    startRuby,
+    startSphinx,
+    startZelda,
   ]);
 
   const routeProgramInteraction = useCallback((response) => {
@@ -158,6 +194,7 @@ export function useDialBoxLineRouting({
 
   return {
     enterLine,
+    routeOracleSelection,
     routeDialResponse,
     routeScheduledInteraction,
   };
