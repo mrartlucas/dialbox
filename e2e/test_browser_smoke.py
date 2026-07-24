@@ -206,7 +206,9 @@ def _miss_scheduled_call_and_play_voicemail(page: Page) -> None:
     assert marked["id"] == created["id"], marked
     assert marked["heard"] is True, marked
 
-    console.get_by_text("VOICEMAIL", exact=True).wait_for(timeout=15_000)
+    # The CRT decorates this heading as "── VOICEMAIL ──", so match its text
+    # rather than requiring a standalone exact node.
+    console.get_by_text("VOICEMAIL", exact=False).wait_for(timeout=15_000)
     console.get_by_text("You have 1 message.", exact=True).wait_for(timeout=15_000)
     console.get_by_text("The Fortune Caller", exact=False).wait_for(timeout=15_000)
     console.get_by_text("End of messages.", exact=False).wait_for(timeout=15_000)
