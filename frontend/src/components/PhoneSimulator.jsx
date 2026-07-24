@@ -7,6 +7,7 @@ import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReb
 import { useSpeechInput } from "../lib/useSpeechInput";
 import { useDialBoxSessionLifecycle } from "../lib/useDialBoxSessionLifecycle";
 import { useDialBoxAudioSpeech } from "../lib/useDialBoxAudioSpeech";
+import { useDialBoxKeypadControls } from "../lib/useDialBoxKeypadControls";
 import {
   isValidKey,
   isValidSource,
@@ -1659,11 +1660,32 @@ export default function PhoneSimulator() {
     deliver(branch.text, { voice: branch.voice || egg.voice });
   }, [push, deliver]);
 
+  const { handleUniversalKey } = useDialBoxKeypadControls({
+    bufferRef,
+    modeRef,
+    sessionGeneration,
+    digitTimer,
+    starTimer,
+    hashPending,
+    setBuf,
+    stopAudio,
+    processDial,
+    playVoicemails,
+    replayLast,
+    triggerExitConfirm,
+    generateNyxReading,
+    nyxStars,
+    submitCurrent,
+    chooseAnotherOracle,
+    push,
+    playTone,
+    replayModes: REPLAY_MODES,
+    interDigitMs: INTER_DIGIT_MS,
+    starHoldMs: STAR_HOLD_MS,
+  });
+
   const onKey = useCallback((d) => {
     if (!offHook || modeRef.current === "busy") return;
-    const generation = sessionGeneration.current;
-    playTone(d);
-    clearTimeout(digitTimer.current);
     const m = modeRef.current;
     const inCall = m === "result" || m === "secret" || m === "message";
     const inMindline = m === "mindline_name" || m === "mindline_confirm" || m === "mindline_talk";
@@ -1679,77 +1701,7 @@ export default function PhoneSimulator() {
     const inTrivia = m === "trivia_play" || m === "trivia_end";
     const inExperience = inCall || inMindline || inMagic8 || inKnock || inAdventure || inRuby || inCyndi || inZelda || inNyx || inCount || inSphinx || inTrivia || m === "fortune_persona";
 
-    // ── Secret-code dialing: ✱ then digits then # (e.g. *69#), works from ANY mode ──
-    // Submit the code with #
-    if (d === "#" && bufferRef.current.startsWith("*")) {
-      clearTimeout(starTimer.current);
-      clearTimeout(digitTimer.current);
-      const code = bufferRef.current.slice(1);
-      setBuf("");
-      if (code) processDial(code);
-      else playVoicemails(); // '*#' with no digits = check voicemail
-      return;
-    }
-    // ✱ begins (or restarts) a secret-code entry — barges into whatever is playing
-    if (d === "*") {
-      clearTimeout(starTimer.current);
-      clearTimeout(digitTimer.current);
-      stopAudio();
-      const modeAtStar = m;
-      setBuf("*");
-      starTimer.current = setTimeout(() => {
-        starTimer.current = null;
-        if (generation !== sessionGeneration.current) return;
-        // No digits followed a lone ✱ -> fall back to the classic meaning
-        if (bufferRef.current === "*") {
-          setBuf("");
-          if (modeAtStar === "dialtone") playVoicemails();
-          else if (REPLAY_MODES.has(modeAtStar)) replayLast();
-        }
-      }, STAR_HOLD_MS);
-      return;
-    }
-    // While entering a secret code, digits append to it (auto-connects after a pause)
-    if (bufferRef.current.startsWith("*") && /^[0-9]$/.test(d)) {
-      clearTimeout(starTimer.current);
-      clearTimeout(digitTimer.current);
-      const nb = bufferRef.current.length < 14 ? bufferRef.current + d : bufferRef.current;
-      setBuf(nb);
-      digitTimer.current = setTimeout(() => {
-        digitTimer.current = null;
-        if (generation !== sessionGeneration.current) return;
-        const code = nb.slice(1);
-        setBuf("");
-        if (code) processDial(code);
-      }, INTER_DIGIT_MS);
-      return;
-    }
-
-    // ## (double pound) = universal exit; opens the End Call? confirmation.
-    // Every single-pound submit waits through the same short grace period so a
-    // second pound can cancel it before Nyx, Count, Sphinx, or result routing fires.
-    if (d === "#") {
-      if (hashPending.current) {
-        clearTimeout(hashPending.current);
-        hashPending.current = null;
-        if (inExperience) triggerExitConfirm();
-        return;
-      }
-      const modeAtHash = m;
-      hashPending.current = setTimeout(() => {
-        hashPending.current = null;
-        if (generation !== sessionGeneration.current || modeRef.current !== modeAtHash) return;
-        if (modeAtHash === "nyx_build") {
-          if (nyxStars.current.length >= 1) generateNyxReading(nyxStars.current.slice());
-          else push("system", "Place at least one star (press 1-9), then press #.");
-        } else if (["count_number", "count_magic", "count_magic_37", "count_magic_kaprekar", "sphinx_riddle"].includes(modeAtHash)) {
-          submitCurrent();
-        } else if (modeAtHash === "result") {
-          chooseAnotherOracle();
-        }
-      }, 650);
-      return;
-    }
+    if (handleUniversalKey(d, { mode: m, inExperience })) return;
 
     // Exit confirmation flow
     if (m === "exit_confirm") {
