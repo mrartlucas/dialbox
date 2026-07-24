@@ -101,6 +101,21 @@ export function useDialBoxKeypadControls({
       return true;
     }
 
+    // Main-menu and oracle-selection digits share the same buffered auto-dial behavior.
+    // Keeping the session snapshot here prevents stale timers from dialing after hang-up.
+    if (/^[0-9]$/.test(key) && (mode === "dialtone" || mode === "fortune_persona")) {
+      stopAudio();
+      const nextBuffer = bufferRef.current.length < 14 ? bufferRef.current + key : bufferRef.current;
+      setBuf(nextBuffer);
+      digitTimer.current = setTimeout(() => {
+        digitTimer.current = null;
+        if (generation !== sessionGeneration.current) return;
+        setBuf("");
+        processDial(nextBuffer);
+      }, interDigitMs);
+      return true;
+    }
+
     return false;
   }, [
     bufferRef,
