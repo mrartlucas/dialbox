@@ -7,10 +7,11 @@ on:
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-characterization.yml"
+      - ".github/scripts/apply_phase1b_round3.py"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: frontend-characterization-${{ github.ref }}
@@ -23,8 +24,26 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Check out repository
+      - name: Check out Phase 1B round-three branch
         uses: actions/checkout@v4
+        with:
+          ref: codex/phase-1b-continue-restore
+
+      - name: Apply exact Continue restoration
+        run: python .github/scripts/apply_phase1b_round3.py
+
+      - name: Commit round-three implementation
+        shell: bash
+        run: |
+          if git diff --quiet -- frontend/src/components/PhoneSimulator.jsx frontend/src/components/PhoneSimulator.test.jsx; then
+            echo "Phase 1B round-three implementation is already applied."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add frontend/src/components/PhoneSimulator.jsx frontend/src/components/PhoneSimulator.test.jsx
+            git commit -m "Restore exact interrupted session on Continue"
+            git push origin HEAD:codex/phase-1b-continue-restore
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
