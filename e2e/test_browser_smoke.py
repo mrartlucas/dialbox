@@ -116,8 +116,9 @@ def _answer_simulated_scheduled_call(page: Page) -> None:
     expect(simulate_button).to_be_enabled()
     simulate_button.click()
 
-    # The production ring window is nine seconds. Verify the ring state quickly,
-    # then answer before the timeout can convert the call into voicemail.
+    # The production Answer control shakes for the entire nine-second ring window.
+    # Verify its real ring state, then force the click so Playwright does not wait
+    # for the animation to stop and accidentally answer after voicemail takes over.
     expect(answer_button).to_contain_text("Answer", timeout=3_000)
     expect(console.get_by_text("RINGING", exact=True)).to_be_visible(timeout=3_000)
 
@@ -126,7 +127,7 @@ def _answer_simulated_scheduled_call(page: Page) -> None:
         and response.request.method == "GET",
         timeout=15_000,
     ) as response_info:
-        answer_button.click()
+        answer_button.click(force=True)
 
     response = response_info.value
     assert response.ok, f"Persona route returned HTTP {response.status}"
