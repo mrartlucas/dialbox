@@ -5,6 +5,7 @@ from playwright.sync_api import Page, Route, expect, sync_playwright
 
 ARTIFACT_DIR = Path("e2e/artifacts")
 APP_URL = "http://127.0.0.1:3000"
+KEYPAD_TEST_IDS = {"*": "star", "#": "hash"}
 
 
 def _stub_tts(route: Route) -> None:
@@ -14,6 +15,10 @@ def _stub_tts(route: Route) -> None:
         content_type="application/json",
         body='{"audio_base64":"","format":"mp3","voice":"nova"}',
     )
+
+
+def _keypad_button(page: Page, key: str):
+    return page.get_by_test_id(f"keypad-button-{KEYPAD_TEST_IDS.get(key, key)}")
 
 
 def _assert_live_menu(page: Page) -> None:
@@ -29,7 +34,7 @@ def _dial_mindline(page: Page) -> None:
         and response.request.method == "POST",
         timeout=15_000,
     ) as response_info:
-        page.get_by_test_id("keypad-button-3").click()
+        _keypad_button(page, "3").click()
 
     response = response_info.value
     assert response.ok, f"Dial route returned HTTP {response.status}"
@@ -55,7 +60,7 @@ def _dial_directory_assistance(page: Page) -> None:
         timeout=15_000,
     ) as response_info:
         for key in ("*", "4", "1", "1", "#"):
-            page.get_by_test_id(f"keypad-button-{key}").click()
+            _keypad_button(page, key).click()
 
     response = response_info.value
     assert response.ok, f"Secret-code route returned HTTP {response.status}"
@@ -69,16 +74,16 @@ def _dial_directory_assistance(page: Page) -> None:
     opening_text = "Directory assistance for the impossible. For the forecast of your soul, press 1."
     console.get_by_text(opening_text, exact=False).wait_for(timeout=15_000)
 
-    page.get_by_test_id("keypad-button-2").click()
+    _keypad_button(page, "2").click()
     branch_text = "Your lost item is precisely where you last had faith it would be"
     console.get_by_text(branch_text, exact=False).wait_for(timeout=15_000)
 
-    page.get_by_test_id("keypad-button-#").click()
-    page.get_by_test_id("keypad-button-#").click()
+    _keypad_button(page, "#").click()
+    _keypad_button(page, "#").click()
     exit_prompt = "Are you sure you want to end this call? Press 1 to continue, press 2 to end."
     console.get_by_text(exit_prompt, exact=False).wait_for(timeout=15_000)
 
-    page.get_by_test_id("keypad-button-1").click()
+    _keypad_button(page, "1").click()
     expect(console.get_by_text(exit_prompt, exact=False)).to_have_count(0)
     console.get_by_text(branch_text, exact=False).wait_for(timeout=15_000)
 
