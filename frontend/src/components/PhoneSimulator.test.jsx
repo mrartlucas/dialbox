@@ -91,13 +91,13 @@ function currentAudio() {
 async function waitForCondition(check, label, attempts = 20) {
   let lastError;
   for (let i = 0; i < attempts; i += 1) {
+    await flushPromises();
     try {
       const value = check();
       if (value) return value;
     } catch (error) {
       lastError = error;
     }
-    await flushPromises();
   }
   if (lastError) throw lastError;
   throw new Error(`Timed out waiting for ${label}`);
@@ -124,9 +124,8 @@ async function renderPhone() {
   const root = createRoot(container);
   await act(async () => {
     root.render(React.createElement(PhoneSimulator));
-    await Promise.resolve();
-    await Promise.resolve();
   });
+  await flushPromises(10);
   const entry = {
     container,
     root,
@@ -193,6 +192,14 @@ async function waitForStatus(container, expected) {
 async function waitForTestId(container, id) {
   return waitForCondition(() => byTestId(container, id), `element ${id}`);
 }
+async function waitForFortuneMenu(container) {
+  await waitForText(container, /CHOOSE YOUR ORACLE/);
+  await waitForCondition(
+    () => mockApi.dial.mock.calls.length > 0,
+    "Fortune Caller dial completion"
+  );
+  await flushPromises(10);
+}
 async function press(container, key) {
   click(container, `keypad-button-${keyId(key)}`);
   await flushPromises();
@@ -217,7 +224,7 @@ async function enterFortuneResult(container) {
   });
   await press(container, "1");
   await waitDialPause();
-  await waitForText(container, /CHOOSE YOUR ORACLE/);
+  await waitForFortuneMenu(container);
   await press(container, "1");
   const nameInput = await waitForTestId(container, "ruby-name-input");
   changeInput(nameInput, "Ava");
@@ -457,7 +464,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await lift(container);
     await press(container, "1");
     await waitDialPause();
-    await waitForText(container, /CHOOSE YOUR ORACLE/);
+    await waitForFortuneMenu(container);
     await press(container, "4");
     await waitForStatus(container, "NYX · STARS");
     await press(container, "1");
@@ -470,7 +477,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await lift(container);
     await press(container, "1");
     await waitDialPause();
-    await waitForText(container, /CHOOSE YOUR ORACLE/);
+    await waitForFortuneMenu(container);
     await press(container, "5");
     await waitForStatus(container, "COUNT");
     await press(container, "1");
@@ -492,7 +499,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await lift(container);
     await press(container, "1");
     await waitDialPause();
-    await waitForText(container, /CHOOSE YOUR ORACLE/);
+    await waitForFortuneMenu(container);
     await press(container, "6");
     await waitForStatus(container, "THE SPHINX");
     await press(container, "2");
@@ -507,7 +514,7 @@ describe("PhoneSimulator Phase 1A characterization", () => {
     await lift(container);
     await press(container, "1");
     await waitDialPause();
-    await waitForText(container, /CHOOSE YOUR ORACLE/);
+    await waitForFortuneMenu(container);
     await press(container, "6");
     await waitForStatus(container, "THE SPHINX");
     await press(container, "2");
