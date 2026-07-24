@@ -250,6 +250,7 @@ export default function PhoneSimulator() {
   const starTimer = useRef(null);
   const bufferRef = useRef("");
   const modeRef = useRef("onhook");
+  const sessionGeneration = useRef(0);
   const lastSpoken = useRef(null);
   const currentEgg = useRef(null);
   const currentLine = useRef(null);
@@ -320,20 +321,24 @@ export default function PhoneSimulator() {
   }, [getPlayer]);
 
   const speak = useCallback(async (text, opts, onDone) => {
+    const generation = sessionGeneration.current;
     try {
       setPlaying(true);
       const res = await api.tts(sayable(text), opts);
+      if (generation !== sessionGeneration.current) return;
       const p = getPlayer();
       try { p.pause(); } catch (e) {}
       p.onended = null;
       p.muted = false;
       p.src = `data:audio/mp3;base64,${res.audio_base64}`;
       p.onended = () => {
+        if (generation !== sessionGeneration.current) return;
         setPlaying(false);
         if (onDone) onDone();
       };
       await p.play();
     } catch (e) {
+      if (generation !== sessionGeneration.current) return;
       setPlaying(false);
       // Rapid successive speak() calls (barge-in) abort the previous play() — benign, ignore.
       const name = e && e.name;
@@ -363,6 +368,7 @@ export default function PhoneSimulator() {
   }, [deliver, push]);
 
   const resetLine = useCallback(() => {
+    sessionGeneration.current += 1;
     clearTimeout(digitTimer.current);
     stopAudio();
     setModeSafe("onhook");
@@ -373,11 +379,13 @@ export default function PhoneSimulator() {
   }, [setBuf, setModeSafe]);
 
   const openMenu = useCallback(async () => {
+    const generation = sessionGeneration.current;
     playDialTone();
     currentEgg.current = null;
     push("system", "*click* — DialBox connects.");
     try {
       const menu = await api.getMenu();
+      if (generation !== sessionGeneration.current) return;
       push("line", menu.greeting);
       push("system", "── DIALBOX NETWORK ──");
       menu.items.forEach((it) =>
@@ -394,13 +402,16 @@ export default function PhoneSimulator() {
         " To check your voicemail, press star. To hear this menu again, press zero.";
       speak(spokenMenu, { voice: OPERATOR_VOICE });
     } catch (e) {
+      if (generation !== sessionGeneration.current) return;
       push("error", "// could not reach the DialBox Network");
     }
   }, [push, speak]);
 
   const loadFortunePersonas = useCallback(async (intro) => {
+    const generation = sessionGeneration.current;
     try {
       const ps = await api.getPersonas();
+      if (generation !== sessionGeneration.current) return;
       const labeled = relabelForToday(ps);
       setPersonas(labeled);
       setProgram({ slug: "fortune", name: "Fortune Caller", has_personas: true });
@@ -410,6 +421,7 @@ export default function PhoneSimulator() {
       push("system", "Dial 1-9 to choose, or 0 to return to the main menu. (Optionally whisper a question below first.)");
       speak(oraclePrompt(labeled), { voice: ORACLE_VOICE });
     } catch (e) {
+      if (generation !== sessionGeneration.current) return;
       push("error", "// personas unavailable");
     }
   }, [push, speak]);
@@ -812,6 +824,7 @@ export default function PhoneSimulator() {
         "To hear that again, press star. To speak with another oracle, press pound. To return to the main menu, dial 0."
       );
     } catch (e) {
+      if (generation !== sessionGeneration.current) return;
       setModeSafe("result");
       if (isOutOfCredits(e)) {
         push("error", "// out of minutes — the Universal Key needs more balance");
@@ -1483,10 +1496,12 @@ export default function PhoneSimulator() {
 
 
   const generateFortune = useCallback(async (personaId) => {
+    const generation = sessionGeneration.current;
     setModeSafe("busy");
     push("system", "…the connection hums with energy…");
     try {
       const res = await api.fortune(personaId, question);
+      if (generation !== sessionGeneration.current) return;
       const signOff = res.sign_off ? ` ${res.sign_off}` : "";
       push("program", `${res.persona_name}: ${res.text}`);
       if (res.sign_off) push("program", res.sign_off);
@@ -1511,6 +1526,7 @@ export default function PhoneSimulator() {
 
   const processDial = useCallback(async (digits) => {
     if (!digits) return;
+    const generation = sessionGeneration.current;
     const curMode = modeRef.current;
 
     if (curMode === "fortune_persona") {
@@ -1534,6 +1550,7 @@ export default function PhoneSimulator() {
     push("caller", `dialed ${digits}`);
     try {
       const res = await api.dial(digits);
+      if (generation !== sessionGeneration.current) return;
       if (res.type === "program" && res.interaction === "mindline") {
         push("program", `Connecting to ${res.name}...`);
         enterMindline();
@@ -1589,6 +1606,7 @@ export default function PhoneSimulator() {
         deliver(res.message || "We're sorry. The number you have dialed is not in service.", { voice: OPERATOR_VOICE });
       }
     } catch (e) {
+      if (generation !== sessionGeneration.current) return;
       setModeSafe("message");
       push("error", "// exchange error — try another number");
       push("system", "Dial 0 to return to the main menu, or hang up.");

@@ -88,6 +88,16 @@ function currentAudio() {
   return mockAudioInstances[mockAudioInstances.length - 1] || null;
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 async function waitForCondition(check, label, attempts = 20) {
   let lastError;
   for (let i = 0; i < attempts; i += 1) {
@@ -579,8 +589,54 @@ describe("PhoneSimulator Phase 1A characterization", () => {
 });
 
 describe("PhoneSimulator future Phase 1B regression TODOs", () => {
-  test.todo("delayed TTS does not play after hang-up");
-  test.todo("delayed API response cannot mutate state after hang-up");
+  test("delayed TTS does not play after hang-up", async () => {
+    const delayedTts = createDeferred();
+    mockApi.tts.mockReturnValueOnce(delayedTts.promise);
+    const { container } = await renderPhone();
+    click(container, "lift-handset-btn");
+    await waitForCondition(
+      () => mockApi.tts.mock.calls.length === 1,
+      "delayed TTS request"
+    );
+    const player = currentAudio();
+    const playCount = player.play.mock.calls.length;
+    click(container, "hangup-btn");
+    expect(status(container)).toBe("ON HOOK");
+    await act(async () => {
+      delayedTts.resolve({ audio_base64: "late-audio" });
+      await Promise.resolve();
+    });
+    await flushPromises(10);
+    expect(player.play).toHaveBeenCalledTimes(playCount);
+    expect(player.src).not.toContain("late-audio");
+  });
+
+  test("delayed API response cannot mutate state after hang-up", async () => {
+    const delayedDial = createDeferred();
+    mockApi.dial.mockReturnValueOnce(delayedDial.promise);
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForCondition(
+      () => mockApi.dial.mock.calls.length === 1,
+      "delayed dial request"
+    );
+    click(container, "hangup-btn");
+    expect(status(container)).toBe("ON HOOK");
+    await act(async () => {
+      delayedDial.resolve({
+        type: "secret",
+        title: "Late Line",
+        response_text: "This response arrived after hang-up.",
+        voice: "nova",
+      });
+      await Promise.resolve();
+    });
+    await flushPromises(10);
+    expect(status(container)).toBe("ON HOOK");
+    expect(text(container)).not.toMatch(/Late Line|arrived after hang-up/);
+  });
   test.todo("microphone stops after hang-up");
   test.todo("every timer is cleared or invalidated");
   test.todo("stale callbacks from an old call cannot affect a new call");
