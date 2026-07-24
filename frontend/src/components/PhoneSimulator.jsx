@@ -311,21 +311,6 @@ export default function PhoneSimulator() {
     setLines((prev) => [...prev, { role, text }]);
   }, []);
 
-  const clearSessionTimers = useCallback(() => {
-    [ringTimer, digitTimer, starTimer, hashPending, goodbyeTimer].forEach((timerRef) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
-    });
-  }, []);
-
-  const stopAudio = () => {
-    if (audioRef.current) {
-      try { audioRef.current.pause(); } catch (e) {}
-      audioRef.current.onended = null;
-    }
-    setPlaying(false);
-  };
-
   // One persistent <audio> element, reused for every TTS clip. Unlocking it during a
   // user gesture (lift handset) keeps mobile/iOS playback working after async TTS fetches.
   const getPlayer = useCallback(() => {
@@ -402,24 +387,6 @@ export default function PhoneSimulator() {
     push("system", "\u21ba replaying…");
     deliver(lastSpoken.current.text, lastSpoken.current.opts, lastSpoken.current.optionsText);
   }, [deliver, push]);
-
-  const resetLine = useCallback(() => {
-    sessionGeneration.current += 1;
-    interruptedSession.current = null;
-    activeSpeech.current = null;
-    clearSessionTimers();
-    stopListening();
-    stopAudio();
-    incomingRef.current = false;
-    incomingSched.current = null;
-    setIncoming(false);
-    setModeSafe("onhook");
-    setBuf("");
-    setMindlineInput("");
-    setProgram(null);
-    setQuestion("");
-    setLines([]);
-  }, [clearSessionTimers, setBuf, setModeSafe, stopListening]);
 
   const openMenu = useCallback(async () => {
     const generation = sessionGeneration.current;
@@ -2141,16 +2108,6 @@ export default function PhoneSimulator() {
     }, 20000);
     return () => clearInterval(iv);
   }, [refreshMessageLight, triggerScheduledRing]);
-
-  useEffect(() => () => {
-    sessionGeneration.current += 1;
-    clearSessionTimers();
-    stopListening();
-    if (audioRef.current) {
-      try { audioRef.current.pause(); } catch (e) {}
-      audioRef.current.onended = null;
-    }
-  }, [clearSessionTimers, stopListening]);
 
   return (
     <div className="relative">
