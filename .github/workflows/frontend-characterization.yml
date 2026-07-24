@@ -7,10 +7,11 @@ on:
     paths:
       - "frontend/**"
       - ".github/workflows/frontend-characterization.yml"
+      - ".github/scripts/apply_phase1c_round1.py"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: frontend-characterization-${{ github.ref }}
@@ -23,8 +24,26 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Check out repository
+      - name: Check out Phase 1C round-one branch
         uses: actions/checkout@v4
+        with:
+          ref: codex/phase-1c-session-lifecycle
+
+      - name: Apply session lifecycle extraction
+        run: python .github/scripts/apply_phase1c_round1.py
+
+      - name: Commit lifecycle extraction
+        shell: bash
+        run: |
+          if git diff --quiet -- frontend/src/components/PhoneSimulator.jsx; then
+            echo "Phase 1C round-one extraction is already applied."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add frontend/src/components/PhoneSimulator.jsx
+            git commit -m "Extract DialBox session lifecycle hook"
+            git push origin HEAD:codex/phase-1c-session-lifecycle
+          fi
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
