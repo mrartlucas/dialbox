@@ -29,30 +29,12 @@ jobs:
         with:
           ref: codex/phase-1a-phone-simulator-tests
 
-      - name: Apply Phase 1A test-only repair
+      - name: Apply final Phase 1A test synchronization repair
         shell: bash
         run: |
-          if grep -q "async function waitForCondition" frontend/src/components/PhoneSimulator.test.jsx; then
-            echo "Characterization test already repaired."
+          if grep -q "async function waitForFortuneMenu" frontend/src/components/PhoneSimulator.test.jsx; then
+            echo "Final characterization-test repair already applied."
           else
-            python - <<'PY'
-          from pathlib import Path
-
-          path = Path(".github/scripts/repair_phase1a_tests.py")
-          code = path.read_text()
-          old = '''    await press(container, "5");
-              await press(container, "1");
-              await press(container, "1");
-              await press(container, "1");
-              await press(container, "2");'''
-          new = '''    await press(container, "5");
-              await press(container, "1");
-              await press(container, "1");
-              await press(container, "2");'''
-          if old not in code:
-              raise SystemExit("Count repair-script pattern not found")
-          path.write_text(code.replace(old, new, 1))
-          PY
             python .github/scripts/repair_phase1a_tests.py
           fi
 
@@ -60,12 +42,12 @@ jobs:
         shell: bash
         run: |
           if git diff --quiet -- frontend/src/components/PhoneSimulator.test.jsx; then
-            echo "Characterization test already repaired."
+            echo "No test-file changes to commit."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add frontend/src/components/PhoneSimulator.test.jsx
-            git commit -m "Repair PhoneSimulator characterization test harness"
+            git commit -m "Finish Phase 1A test synchronization repair"
             git push origin HEAD:codex/phase-1a-phone-simulator-tests
           fi
 
