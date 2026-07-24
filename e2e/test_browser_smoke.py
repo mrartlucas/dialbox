@@ -24,11 +24,30 @@ def _assert_live_menu(page: Page) -> None:
 
 
 def _dial_mindline(page: Page) -> None:
-    page.get_by_test_id("keypad-button-3").click()
+    with page.expect_response(
+        lambda response: response.url.endswith("/api/session/dial")
+        and response.request.method == "POST",
+        timeout=15_000,
+    ) as response_info:
+        page.get_by_test_id("keypad-button-3").click()
+
+    response = response_info.value
+    assert response.ok, f"Dial route returned HTTP {response.status}"
+    payload = response.json()
+    assert payload["type"] == "program"
+    assert payload["interaction"] == "mindline"
+    assert payload["slug"] == "therapy"
+
     console = page.get_by_test_id("crt-console")
     console.get_by_text("Connecting to MindLine", exact=False).wait_for(timeout=15_000)
-    console.get_by_text("MINDLINE", exact=False).wait_for(timeout=15_000)
-    page.get_by_test_id("mindline-input").wait_for(timeout=15_000)
+    console.get_by_text(
+        "Welcome to MindLine. Before we begin, please tell me your name.",
+        exact=False,
+    ).wait_for(timeout=15_000)
+
+    name_input = page.get_by_test_id("mindline-input")
+    name_input.wait_for(timeout=15_000)
+    assert name_input.get_attribute("placeholder") == "state your name..."
 
 
 def test_real_browser_reaches_real_backend_mindline() -> None:
