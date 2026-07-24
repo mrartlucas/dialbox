@@ -60,14 +60,14 @@ def _dial_directory_assistance(page: Page) -> None:
     response = response_info.value
     assert response.ok, f"Secret-code route returned HTTP {response.status}"
     payload = response.json()
-    assert payload["type"] == "secret"
-    assert payload["code"] == "411"
-    assert payload["title"] == "Directory Assistance"
-    assert set(payload["branches"]) == {"1", "2", "3"}
+    assert payload["type"] == "secret", payload
+    assert payload["code"] == "411", payload
+    assert payload["title"] == "Directory Assistance", payload
+    assert set(payload["branches"]) == {"1", "2", "3"}, payload
 
     console = page.get_by_test_id("crt-console")
-    console.get_by_text("Directory Assistance", exact=False).wait_for(timeout=15_000)
-    console.get_by_text("Directory assistance for the impossible", exact=False).wait_for(timeout=15_000)
+    opening_text = "Directory assistance for the impossible. For the forecast of your soul, press 1."
+    console.get_by_text(opening_text, exact=False).wait_for(timeout=15_000)
 
     page.get_by_test_id("keypad-button-2").click()
     branch_text = "Your lost item is precisely where you last had faith it would be"
@@ -75,14 +75,11 @@ def _dial_directory_assistance(page: Page) -> None:
 
     page.get_by_test_id("keypad-button-#").click()
     page.get_by_test_id("keypad-button-#").click()
-    console.get_by_text("END CALL?", exact=False).wait_for(timeout=15_000)
-    console.get_by_text(
-        "Are you sure you want to end this call? Press 1 to continue, press 2 to end.",
-        exact=False,
-    ).wait_for(timeout=15_000)
+    exit_prompt = "Are you sure you want to end this call? Press 1 to continue, press 2 to end."
+    console.get_by_text(exit_prompt, exact=False).wait_for(timeout=15_000)
 
     page.get_by_test_id("keypad-button-1").click()
-    expect(console.get_by_text("END CALL?", exact=False)).to_have_count(0)
+    expect(console.get_by_text(exit_prompt, exact=False)).to_have_count(0)
     console.get_by_text(branch_text, exact=False).wait_for(timeout=15_000)
 
 
