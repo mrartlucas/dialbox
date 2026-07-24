@@ -24,6 +24,7 @@ Required:
 - `MONGO_URL`: MongoDB connection string
 - `DB_NAME`: MongoDB database name
 - `CORS_ORIGINS`: comma-separated frontend origins allowed to call the API
+- `ADMIN_API_KEY`: long random key used by the production entry point to protect configuration-changing routes
 
 Optional for the initial web launch:
 
@@ -42,6 +43,8 @@ Required:
 - `REACT_APP_BACKEND_URL`: public backend origin with no trailing `/api`, for example `http://127.0.0.1:8000`
 
 React embeds this value at build time. Set the production backend URL before running the production build.
+
+Production builds hide the configuration panel and DTMF development lab unless `REACT_APP_ENABLE_DEV_TOOLS=true` is explicitly provided.
 
 ## Clean local installation
 
@@ -93,14 +96,63 @@ The static production output is written to `frontend/build/`.
 From the repository root:
 
 ```bash
-cd backend && python -m uvicorn server:app --host 0.0.0.0 --port "${PORT:-8000}"
+cd backend && python -m uvicorn production:app --host 0.0.0.0 --port "${PORT:-8000}"
 ```
+
+The production entry point adds:
+
+- database-aware health checking at `/api/health`
+- `X-DialBox-Admin-Key` protection for configuration-changing routes
+- caller-facing gameplay and scheduled-call routes remain public
 
 The backend must be able to reach MongoDB during startup because it seeds the current DialBox program and oracle configuration.
 
-## Deployment contract
+## Render deployment
 
-The frontend and backend may be deployed separately.
+The root `render.yaml` creates two services:
+
+- `dialbox-api`: Python web service running the protected production FastAPI entry point
+- `dialbox-web`: static React site with the backend URL injected automatically at build time
+
+### 1. Prepare MongoDB
+
+Create a MongoDB Atlas database or another internet-accessible MongoDB deployment. Copy its connection string.
+
+### 2. Create a Render Blueprint
+
+In Render, create a new Blueprint from this GitHub repository. Render reads `render.yaml` and creates both services.
+
+During the initial Blueprint setup, provide:
+
+- `MONGO_URL`: the managed MongoDB connection string
+- `CORS_ORIGINS`: initially use the future frontend URL, normally `https://dialbox-web.onrender.com`
+- `EMERGENT_LLM_KEY`: the funded integration key, or leave blank for a core-only deployment
+
+Render generates `ADMIN_API_KEY` automatically. Keep that value private.
+
+### 3. Confirm the generated URLs
+
+After the first deploy:
+
+1. open the `dialbox-web` service and copy its exact public URL
+2. open the `dialbox-api` service environment settings
+3. set `CORS_ORIGINS` to that exact frontend origin, with no trailing slash
+4. redeploy the API if Render does not trigger a restart automatically
+
+### 4. Verify the live deployment
+
+```bash
+curl --fail https://YOUR-API.onrender.com/api/health
+curl --fail https://YOUR-API.onrender.com/api/menu
+```
+
+The health response must include both `"status":"ok"` and `"database":"ok"`.
+
+The public site should show only the DialBox phone. The configuration panel and DTMF lab are intentionally absent from the production build.
+
+## Generic deployment contract
+
+The frontend and backend may also be deployed separately on another provider.
 
 Frontend service:
 
@@ -109,14 +161,15 @@ Frontend service:
 - build command: `CI=false yarn build`
 - publish directory: `frontend/build`
 - build variable: `REACT_APP_BACKEND_URL=https://your-backend.example.com`
+- production flag: `REACT_APP_ENABLE_DEV_TOOLS=false`
 
 Backend service:
 
 - working directory: `backend`
 - install command: `pip install -r requirements.txt`
-- start command: `python -m uvicorn server:app --host 0.0.0.0 --port $PORT`
-- health URL: `/api/`
-- required variables: `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`
+- start command: `python -m uvicorn production:app --host 0.0.0.0 --port $PORT`
+- health URL: `/api/health`
+- required variables: `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `ADMIN_API_KEY`
 - optional AI variable: `EMERGENT_LLM_KEY`
 
 ## Automated validation
@@ -126,8 +179,10 @@ Pull requests that affect release files run the release-readiness workflow. It v
 - clean Yarn installation
 - production React build with an explicit backend URL
 - complete backend dependency installation
-- FastAPI startup against MongoDB
-- API health and seeded menu responses
+- Render Blueprint structure
+- protected FastAPI production startup against MongoDB
+- database-aware health and seeded menu responses
+- rejection of unauthorized configuration writes
 
 Browser behavior is separately covered by the Chromium E2E workflow.
 

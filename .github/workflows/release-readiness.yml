@@ -7,6 +7,7 @@ on:
     paths:
       - "README.md"
       - ".gitignore"
+      - "render.yaml"
       - "backend/**"
       - "frontend/**"
       - ".github/workflows/release-readiness.yml"
@@ -47,6 +48,7 @@ jobs:
         env:
           CI: false
           REACT_APP_BACKEND_URL: https://api.dialbox.invalid
+          REACT_APP_ENABLE_DEV_TOOLS: false
         run: yarn --cwd frontend build
 
       - name: Verify production output
@@ -55,7 +57,7 @@ jobs:
           test -d frontend/build/static
 
   backend-startup:
-    name: FastAPI startup with MongoDB
+    name: Production FastAPI startup with MongoDB
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -74,6 +76,21 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Validate Render blueprint structure
+        run: |
+          ruby -ryaml -e '
+            blueprint = YAML.load_file("render.yaml")
+            services = blueprint.fetch("services")
+            names = services.map { |service| service.fetch("name") }
+            abort "missing dialbox-api" unless names.include?("dialbox-api")
+            abort "missing dialbox-web" unless names.include?("dialbox-web")
+            api = services.find { |service| service["name"] == "dialbox-api" }
+            web = services.find { |service| service["name"] == "dialbox-web" }
+            abort "wrong health path" unless api["healthCheckPath"] == "/api/health"
+            abort "wrong production entry point" unless api["startCommand"].include?("production:app")
+            abort "frontend is not static" unless web["runtime"] == "static"
+          '
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -84,27 +101,38 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r backend/requirements.txt
 
-      - name: Start FastAPI backend
+      - name: Start production FastAPI backend
         env:
           MONGO_URL: mongodb://127.0.0.1:27017
           DB_NAME: dialbox_release_readiness
           CORS_ORIGINS: http://127.0.0.1:3000
           EMERGENT_LLM_KEY: release-readiness-placeholder
+          ADMIN_API_KEY: release-readiness-admin-key
         run: |
           cd backend
-          python -m uvicorn server:app --host 127.0.0.1 --port 8000 > ../backend-release.log 2>&1 &
+          python -m uvicorn production:app --host 127.0.0.1 --port 8000 > ../backend-release.log 2>&1 &
           echo $! > ../backend-release.pid
 
-      - name: Verify backend health and seed data
+      - name: Verify health, seed data, and admin protection
         run: |
           for attempt in {1..60}; do
-            if curl --fail --silent http://127.0.0.1:8000/api/ > /tmp/dialbox-health.json; then
+            if curl --fail --silent http://127.0.0.1:8000/api/health > /tmp/dialbox-health.json; then
               break
             fi
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:8000/api/ | grep '"status":"ok"'
+
+          curl --fail --silent http://127.0.0.1:8000/api/health | grep '"status":"ok"'
+          curl --fail --silent http://127.0.0.1:8000/api/health | grep '"database":"ok"'
           curl --fail --silent http://127.0.0.1:8000/api/menu | grep '"greeting"'
+
+          unauthorized_status=$(curl --silent --output /tmp/admin-write.json --write-out "%{http_code}" \
+            -X PATCH \
+            -H "Content-Type: application/json" \
+            -d '{"enabled":false}' \
+            http://127.0.0.1:8000/api/programs/fortune)
+          test "$unauthorized_status" = "401"
+          grep '"detail":"Unauthorized"' /tmp/admin-write.json
 
       - name: Upload backend startup log
         if: always()
