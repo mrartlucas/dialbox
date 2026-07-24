@@ -746,5 +746,69 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     expect(mockApi.rubyReading).not.toHaveBeenCalled();
     expect(mockApi.tts.mock.calls.length).toBeGreaterThan(ttsCallsBeforeExit + 1);
   });
-  test.todo("universal ## works in every submit mode");
+  test("universal ## cancels Nyx constellation submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX OF THE NINE STARS");
+    await press(container, "1");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.nyxReading).not.toHaveBeenCalled();
+  });
+
+  test("universal ## cancels Count number submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "5");
+    await waitDialPause();
+    await waitForStatus(container, "COUNT CLAIRVOYANT");
+    await press(container, "1");
+    await press(container, "1");
+    await press(container, "7");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.countReading).not.toHaveBeenCalled();
+  });
+
+  test("universal ## cancels Sphinx riddle submission", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "6");
+    await waitDialPause();
+    await waitForStatus(container, "THE SPHINX");
+    await press(container, "2");
+    await press(container, "#");
+    await press(container, "#");
+    expect(status(container)).toBe("END CALL?");
+    expect(mockApi.sphinxGates).not.toHaveBeenCalled();
+  });
+
+  test("a lone pound still submits Nyx after the double-pound grace period", async () => {
+    const { container } = await renderPhone();
+    await lift(container);
+    await press(container, "1");
+    await waitDialPause();
+    await waitForFortuneMenu(container);
+    await press(container, "4");
+    await waitDialPause();
+    await waitForStatus(container, "NYX OF THE NINE STARS");
+    await press(container, "1");
+    await press(container, "#");
+    expect(mockApi.nyxReading).not.toHaveBeenCalled();
+    await waitPoundPause();
+    expect(mockApi.nyxReading).toHaveBeenCalledWith([1]);
+  });
 });
