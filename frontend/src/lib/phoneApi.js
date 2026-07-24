@@ -22,6 +22,12 @@ export function isOutOfCredits(err) {
   return !!(err && err.response && err.response.status === 402);
 }
 
+function normalizeVoicemails(voicemails) {
+  return (voicemails || []).map((vm) =>
+    String(vm.id || "").startsWith("pool_") ? { ...vm, heard: true } : vm
+  );
+}
+
 export const api = {
   getMenu: () => http.get("/menu").then((r) => r.data),
   getPersonas: () => http.get("/personas").then((r) => r.data),
@@ -77,7 +83,9 @@ export const api = {
   adventureAiStart: (theme) => http.post("/adventure/ai/start", { theme }).then((r) => r.data),
   adventureAiChoose: (session_id, choice) =>
     http.post("/adventure/ai/choose", { session_id, choice }).then((r) => r.data),
-  getVoicemails: () => http.get("/voicemails").then((r) => r.data),
+  // The backend also returns rotating pool_* archive samples. They stay playable,
+  // but only persisted missed-call records should illuminate the message light.
+  getVoicemails: () => http.get("/voicemails").then((r) => normalizeVoicemails(r.data)),
   createVoicemail: (program_slug) => http.post("/voicemails", { program_slug }).then((r) => r.data),
   markVoicemail: (id) => http.patch(`/voicemails/${id}`).then((r) => r.data),
   deleteVoicemail: (id) => http.delete(`/voicemails/${id}`).then((r) => r.data),
@@ -85,7 +93,7 @@ export const api = {
 
 // Tiny silent clip used to unlock HTMLAudio playback on a user gesture (iOS/Safari).
 export const SILENT_CLIP =
-  "data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA";
+  "data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA";
 
 // Resume the WebAudio context if the browser suspended it (autoplay policy).
 export function resumeAudioCtx() {
