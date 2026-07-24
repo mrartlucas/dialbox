@@ -5,6 +5,7 @@ import Keypad from "./Keypad";
 import CrtConsole from "./CrtConsole";
 import { api, playTone, playDialTone, playBeep, playStartup, playParity, playReboot, playDisconnect, playWin, playLose, resumeAudioCtx, SILENT_CLIP, isOutOfCredits } from "../lib/phoneApi";
 import { useSpeechInput } from "../lib/useSpeechInput";
+import { useDialBoxSessionLifecycle } from "../lib/useDialBoxSessionLifecycle";
 import {
   isValidKey,
   isValidSource,
@@ -244,22 +245,43 @@ export default function PhoneSimulator() {
   );
   const { supported: speechSupported, listening, start: startListening, stop: stopListening } = useSpeechInput();
 
-  const audioRef = useRef(null);
-  const ringTimer = useRef(null);
-  const digitTimer = useRef(null);
-  const starTimer = useRef(null);
-  const goodbyeTimer = useRef(null);
-  const bufferRef = useRef("");
-  const modeRef = useRef("onhook");
-  const sessionGeneration = useRef(0);
+  const {
+    audioRef,
+    ringTimer,
+    digitTimer,
+    starTimer,
+    goodbyeTimer,
+    bufferRef,
+    modeRef,
+    sessionGeneration,
+    activeSpeech,
+    interruptedSession,
+    currentLine,
+    hashPending,
+    incomingRef,
+    incomingSched,
+    clearSessionTimers,
+    stopAudio,
+    resetLine,
+  } = useDialBoxSessionLifecycle({
+    stopListening,
+    setPlaying,
+    setIncoming,
+    setModeSafe: (nextMode) => {
+      modeRef.current = nextMode;
+      setMode(nextMode);
+    },
+    setBuf: (nextBuffer) => {
+      bufferRef.current = nextBuffer;
+      setBuffer(nextBuffer);
+    },
+    setMindlineInput,
+    setProgram,
+    setQuestion,
+    setLines,
+  });
   const lastSpoken = useRef(null);
-  const activeSpeech = useRef(null);
-  const interruptedSession = useRef(null);
   const currentEgg = useRef(null);
-  const currentLine = useRef(null);
-  const hashPending = useRef(null);
-  const incomingRef = useRef(false);
-  const incomingSched = useRef(null);
   const kkJoke = useRef(null);
   const kkTold = useRef([]);
   const mlSession = useRef({ id: null, phase: null });
@@ -288,21 +310,6 @@ export default function PhoneSimulator() {
   const push = useCallback((role, text) => {
     setLines((prev) => [...prev, { role, text }]);
   }, []);
-
-  const clearSessionTimers = useCallback(() => {
-    [ringTimer, digitTimer, starTimer, hashPending, goodbyeTimer].forEach((timerRef) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = null;
-    });
-  }, []);
-
-  const stopAudio = () => {
-    if (audioRef.current) {
-      try { audioRef.current.pause(); } catch (e) {}
-      audioRef.current.onended = null;
-    }
-    setPlaying(false);
-  };
 
   // One persistent <audio> element, reused for every TTS clip. Unlocking it during a
   // user gesture (lift handset) keeps mobile/iOS playback working after async TTS fetches.
@@ -380,24 +387,6 @@ export default function PhoneSimulator() {
     push("system", "\u21ba replaying…");
     deliver(lastSpoken.current.text, lastSpoken.current.opts, lastSpoken.current.optionsText);
   }, [deliver, push]);
-
-  const resetLine = useCallback(() => {
-    sessionGeneration.current += 1;
-    interruptedSession.current = null;
-    activeSpeech.current = null;
-    clearSessionTimers();
-    stopListening();
-    stopAudio();
-    incomingRef.current = false;
-    incomingSched.current = null;
-    setIncoming(false);
-    setModeSafe("onhook");
-    setBuf("");
-    setMindlineInput("");
-    setProgram(null);
-    setQuestion("");
-    setLines([]);
-  }, [clearSessionTimers, setBuf, setModeSafe, stopListening]);
 
   const openMenu = useCallback(async () => {
     const generation = sessionGeneration.current;
@@ -2119,16 +2108,6 @@ export default function PhoneSimulator() {
     }, 20000);
     return () => clearInterval(iv);
   }, [refreshMessageLight, triggerScheduledRing]);
-
-  useEffect(() => () => {
-    sessionGeneration.current += 1;
-    clearSessionTimers();
-    stopListening();
-    if (audioRef.current) {
-      try { audioRef.current.pause(); } catch (e) {}
-      audioRef.current.onended = null;
-    }
-  }, [clearSessionTimers, stopListening]);
 
   return (
     <div className="relative">
