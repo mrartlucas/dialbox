@@ -21,12 +21,13 @@ replacement = '''  test("every handset timer is cleared or invalidated on hang-u
     expect(mockApi.dial).not.toHaveBeenCalled();
     expect(status(container)).toBe("ON HOOK");
 
-    // Lone-star timer cannot open voicemail after hang-up.
+    // Lone-star timer cannot add another voicemail read after hang-up.
     await lift(container);
+    const voicemailCallsBeforeStar = mockApi.getVoicemails.mock.calls.length;
     await press(container, "*");
     click(container, "hangup-btn");
     await waitStarHold();
-    expect(mockApi.getVoicemails).not.toHaveBeenCalled();
+    expect(mockApi.getVoicemails).toHaveBeenCalledTimes(voicemailCallsBeforeStar);
     expect(status(container)).toBe("ON HOOK");
 
     // Single-pound timer cannot reopen an oracle after hang-up.
@@ -67,4 +68,4 @@ replacement = '''  test("every handset timer is cleared or invalidated on hang-u
 
 text = text[:start] + replacement + text[end:]
 TEST.write_text(text)
-print("Replaced brittle timer-count assertion with direct timer behavior checks.")
+print("Replaced timer regression with direct behavior checks and stable baselines.")
