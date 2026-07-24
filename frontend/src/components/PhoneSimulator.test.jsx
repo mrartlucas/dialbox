@@ -658,12 +658,13 @@ describe("PhoneSimulator future Phase 1B regression TODOs", () => {
     expect(mockApi.dial).not.toHaveBeenCalled();
     expect(status(container)).toBe("ON HOOK");
 
-    // Lone-star timer cannot open voicemail after hang-up.
+    // Lone-star timer cannot add another voicemail read after hang-up.
     await lift(container);
+    const voicemailCallsBeforeStar = mockApi.getVoicemails.mock.calls.length;
     await press(container, "*");
     click(container, "hangup-btn");
     await waitStarHold();
-    expect(mockApi.getVoicemails).not.toHaveBeenCalled();
+    expect(mockApi.getVoicemails).toHaveBeenCalledTimes(voicemailCallsBeforeStar);
     expect(status(container)).toBe("ON HOOK");
 
     // Single-pound timer cannot reopen an oracle after hang-up.
