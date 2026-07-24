@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from playwright.sync_api import Page, Route, expect, sync_playwright
@@ -19,6 +20,10 @@ def _stub_tts(route: Route) -> None:
 
 def _keypad_button(page: Page, key: str):
     return page.get_by_test_id(f"keypad-button-{KEYPAD_TEST_IDS.get(key, key)}")
+
+
+def _message_light_lamp(page: Page):
+    return page.get_by_test_id("message-light").locator("span").first
 
 
 def _assert_live_menu(page: Page) -> None:
@@ -145,6 +150,69 @@ def _answer_simulated_scheduled_call(page: Page) -> None:
     expect(page.get_by_test_id("lift-handset-btn")).to_have_count(0)
 
 
+def _miss_scheduled_call_and_play_voicemail(page: Page) -> None:
+    console = page.get_by_test_id("crt-console")
+    simulate_button = page.get_by_test_id("simulate-call-btn")
+    handset_button = page.get_by_test_id("lift-handset-btn")
+    message_lamp = _message_light_lamp(page)
+
+    # Rotating network samples are archive messages and must not light a fresh box.
+    expect(message_lamp).not_to_have_class(re.compile(r"\bbg-red-500\b"), timeout=5_000)
+
+    with page.expect_response(
+        lambda response: response.url.endswith("/api/voicemails")
+        and response.request.method == "POST",
+        timeout=15_000,
+    ) as create_info:
+        simulate_button.click()
+        expect(handset_button).to_contain_text("Answer", timeout=3_000)
+        expect(console.get_by_text("RINGING", exact=True)).to_be_visible(timeout=3_000)
+
+    created_response = create_info.value
+    assert created_response.ok, f"Voicemail create returned HTTP {created_response.status}"
+    created = created_response.json()
+    assert created["program_slug"] == "fortune", created
+    assert created["from_name"] == "The Fortune Caller", created
+    assert created["heard"] is False, created
+
+    expect(handset_button).to_contain_text("Lift Handset", timeout=5_000)
+    expect(message_lamp).to_have_class(re.compile(r"\bbg-red-500\b"), timeout=5_000)
+
+    _assert_live_menu(page)
+
+    with page.expect_response(
+        lambda response: "/api/voicemails/" in response.url
+        and response.request.method == "PATCH",
+        timeout=15_000,
+    ) as mark_info:
+        with page.expect_response(
+            lambda response: response.url.endswith("/api/voicemails")
+            and response.request.method == "GET",
+            timeout=15_000,
+        ) as list_info:
+            _keypad_button(page, "*").click()
+
+    listed_response = list_info.value
+    assert listed_response.ok, f"Voicemail list returned HTTP {listed_response.status}"
+    listed = listed_response.json()
+    missed = [vm for vm in listed if not str(vm["id"]).startswith("pool_")]
+    assert len(missed) == 1, missed
+    assert missed[0]["id"] == created["id"], missed
+    assert missed[0]["heard"] is False, missed
+
+    marked_response = mark_info.value
+    assert marked_response.ok, f"Voicemail mark returned HTTP {marked_response.status}"
+    marked = marked_response.json()
+    assert marked["id"] == created["id"], marked
+    assert marked["heard"] is True, marked
+
+    console.get_by_text("VOICEMAIL", exact=True).wait_for(timeout=15_000)
+    console.get_by_text("You have 1 message.", exact=True).wait_for(timeout=15_000)
+    console.get_by_text("The Fortune Caller", exact=False).wait_for(timeout=15_000)
+    console.get_by_text("End of messages.", exact=False).wait_for(timeout=15_000)
+    expect(message_lamp).not_to_have_class(re.compile(r"\bbg-red-500\b"), timeout=15_000)
+
+
 def test_real_browser_reaches_real_backend_mindline() -> None:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -219,6 +287,25 @@ def test_real_browser_answers_simulated_scheduled_incoming_call() -> None:
             page.screenshot(path=str(ARTIFACT_DIR / "scheduled-call-answered-passed.png"), full_page=True)
         except Exception:
             page.screenshot(path=str(ARTIFACT_DIR / "scheduled-call-answered-failed.png"), full_page=True)
+            raise
+        finally:
+            browser.close()
+
+
+def test_real_browser_missed_call_creates_and_clears_voicemail() -> None:
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 1100})
+        page.route("**/api/tts", _stub_tts)
+
+        try:
+            page.goto(APP_URL, wait_until="networkidle", timeout=30_000)
+            _miss_scheduled_call_and_play_voicemail(page)
+            page.screenshot(path=str(ARTIFACT_DIR / "missed-call-voicemail-passed.png"), full_page=True)
+        except Exception:
+            page.screenshot(path=str(ARTIFACT_DIR / "missed-call-voicemail-failed.png"), full_page=True)
             raise
         finally:
             browser.close()
